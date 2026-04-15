@@ -9,6 +9,7 @@
   },
   "dependencies": {
     "express": "^4.19.2",
+    "https-proxy-agent": "^9.0.0",
     "node-fetch": "^3.3.2"
   }
 }

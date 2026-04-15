@@ -5,7 +5,7 @@ import { join, dirname } from 'node:path';
 import { randomBytes } from 'node:crypto';
 import { configStore } from '../shared/config.js';
 import { generateName } from '../shared/names.js';
-import { startOAuthFlow } from './oauth-login.js';
+import { createLoginSession, importCredentials, startTmuxLogin, submitAuthCode, waitForCredentials } from './oauth-login.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PORT = process.env.ADMIN_PORT ?? 3182;
@@ -122,33 +122,72 @@ app.get('/api/usage', async (req, res) => {
 
 // ── OAuth ─────────────────────────────────────────────────────────────────
 
-// Map of sessionId → { status, promise, account?, error? }
+// Map of sessionId → { configDir, tmuxSession }
 const oauthSessions = new Map();
 
-app.post('/api/oauth/start', (_req, res) => {
-  const { getUrl, promise } = startOAuthFlow();
-  // Wait a tick for server.listen() to assign port
-  setTimeout(() => {
-    const url = getUrl();
-    const sessionId = randomBytes(8).toString('hex');
-    oauthSessions.set(sessionId, { status: 'pending', promise });
-    promise.then(async (account) => {
-      const accounts = await configStore.readAccounts();
-      accounts.push(account);
-      await configStore.writeAccounts(accounts);
-      oauthSessions.set(sessionId, { status: 'done', account: sanitiseAccount(account) });
-    }).catch((err) => {
-      oauthSessions.set(sessionId, { status: 'error', error: err.message });
-    });
-    res.json({ url, sessionId });
-  }, 50);
+// Step 1: start tmux claude login, return authorization URL
+app.post('/api/oauth/start', async (_req, res) => {
+  try {
+    const { sessionId, configDir, tmuxSession, authUrl } = await startTmuxLogin();
+    oauthSessions.set(sessionId, { configDir, tmuxSession });
+    res.json({ sessionId, authUrl });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
-app.get('/api/oauth/status/:sessionId', (req, res) => {
+// Step 2: user pastes the authentication code
+app.post('/api/oauth/submit-code/:sessionId', async (req, res) => {
   const session = oauthSessions.get(req.params.sessionId);
-  if (!session) return res.status(404).json({ error: 'not_found' });
-  res.json(session);
-  if (session.status !== 'pending') oauthSessions.delete(req.params.sessionId);
+  if (!session) return res.status(404).json({ error: 'session_not_found' });
+  const { code } = req.body;
+  if (!code) return res.status(400).json({ error: 'missing_code' });
+  try {
+    await submitAuthCode(session.tmuxSession, code.trim());
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Step 3: poll until credentials file appears, then import
+app.post('/api/oauth/import/:sessionId', async (req, res) => {
+  const session = oauthSessions.get(req.params.sessionId);
+  if (!session) return res.status(404).json({ error: 'session_not_found' });
+
+  try {
+    const account = await waitForCredentials(session.configDir, session.tmuxSession);
+    oauthSessions.delete(req.params.sessionId); // only delete on success
+    const accounts = await configStore.readAccounts();
+    accounts.push(account);
+    await configStore.writeAccounts(accounts);
+    res.json({ account: sanitiseAccount(account) });
+  } catch (err) {
+    // Keep session in map so the client can retry or diagnose
+    res.status(400).json({ error: err.message });
+  }
+});
+
+// Fallback: manual terminal flow
+app.post('/api/oauth/start-manual', (_req, res) => {
+  const { sessionId, configDir, loginCmd } = createLoginSession();
+  oauthSessions.set(sessionId, { configDir, tmuxSession: null });
+  res.json({ sessionId, loginCmd });
+});
+
+app.post('/api/oauth/import-manual/:sessionId', async (req, res) => {
+  const session = oauthSessions.get(req.params.sessionId);
+  if (!session) return res.status(404).json({ error: 'session_not_found' });
+  oauthSessions.delete(req.params.sessionId);
+  try {
+    const account = await importCredentials(session.configDir);
+    const accounts = await configStore.readAccounts();
+    accounts.push(account);
+    await configStore.writeAccounts(accounts);
+    res.json({ account: sanitiseAccount(account) });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
 });
 
 // ── Helpers ───────────────────────────────────────────────────────────────

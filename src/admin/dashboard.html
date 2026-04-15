@@ -396,6 +396,63 @@ tr:hover td { background: #FDFAF8; }
   </div>
 </div>
 
+<!-- ===== ADD ACCOUNT (OAUTH) MODAL ===== -->
+<div class="modal-backdrop" x-show="showOAuth" @click.self="cancelOAuth()">
+  <div class="modal" style="max-width:560px">
+    <div class="modal-title">添加账号</div>
+
+    <!-- Step 0: starting -->
+    <template x-if="oauthStep === 0">
+      <div style="text-align:center;padding:20px 0;color:#666;font-size:13px">
+        正在启动登录进程…
+      </div>
+    </template>
+
+    <!-- Step 1: show auth URL, wait for user to open and get code -->
+    <template x-if="oauthStep === 1">
+      <div>
+        <p style="font-size:13px;color:#666;margin-bottom:10px">
+          点击下方链接，用目标 Claude 账号授权，然后将页面显示的 <strong>Authentication Code</strong> 粘贴到下方：
+        </p>
+        <div style="display:flex;gap:6px;align-items:center;margin-bottom:14px">
+          <a :href="oauthAuthUrl" target="_blank"
+             style="flex:1;background:#f5f5f5;border:1px solid #e2e8f0;border-radius:6px;padding:8px 12px;font-size:12px;word-break:break-all;color:#3182ce;text-decoration:none"
+             x-text="oauthAuthUrl"></a>
+          <button class="btn btn-ghost" style="flex-shrink:0;font-size:12px"
+                  @click="navigator.clipboard.writeText(oauthAuthUrl)">复制</button>
+        </div>
+        <div style="margin-bottom:4px">
+          <label style="font-size:12px;color:#555;display:block;margin-bottom:4px">Authentication Code</label>
+          <div style="display:flex;gap:6px">
+            <input class="form-input" x-model="oauthAuthCode"
+                   placeholder="粘贴 Authentication Code…"
+                   @keydown.enter="submitCode()"
+                   style="font-size:13px">
+            <button class="btn btn-primary" style="flex-shrink:0"
+                    :disabled="!oauthAuthCode || oauthLoading"
+                    @click="submitCode()">
+              <span x-text="oauthLoading ? '提交中…' : '提交'"></span>
+            </button>
+          </div>
+        </div>
+      </div>
+    </template>
+
+    <!-- Step 2: code submitted, waiting for credentials file -->
+    <template x-if="oauthStep === 2">
+      <div style="text-align:center;padding:20px 0;color:#666;font-size:13px">
+        正在等待登录完成…
+      </div>
+    </template>
+
+    <p x-show="oauthError" x-text="oauthError" style="color:#e53e3e;font-size:12px;margin-top:8px"></p>
+
+    <div class="modal-actions">
+      <button class="btn btn-ghost" @click="cancelOAuth()">取消</button>
+    </div>
+  </div>
+</div>
+
 <!-- ===== NEW TERMINAL MODAL ===== -->
 <div class="modal-backdrop" x-show="showNewTerminal" @click.self="showNewTerminal=false">
   <div class="modal">
@@ -428,6 +485,15 @@ function hub() {
     editTerminalName: '',
     showNewTerminal: false,
     newTerminalName: '',
+
+    // OAuth flow
+    showOAuth: false,
+    oauthStep: 0,
+    oauthSessionId: '',
+    oauthAuthUrl: '',
+    oauthAuthCode: '',
+    oauthLoading: false,
+    oauthError: '',
 
     // Usage
     usageRange: '7d',
@@ -603,19 +669,58 @@ function hub() {
     },
 
     async startOAuth() {
-      const { url, sessionId } = await fetch('/api/oauth/start', { method: 'POST' }).then(r => r.json());
-      window.open(url, '_blank');
-      // Poll for completion
-      const poll = setInterval(async () => {
-        const status = await fetch(`/api/oauth/status/${sessionId}`).then(r => r.json());
-        if (status.status === 'done') {
-          clearInterval(poll);
-          await this.refresh();
-        } else if (status.status === 'error') {
-          clearInterval(poll);
-          alert('OAuth 失败: ' + status.error);
-        }
-      }, 1500);
+      this.oauthError = '';
+      this.oauthAuthCode = '';
+      this.oauthAuthUrl = '';
+      this.oauthStep = 0;
+      this.showOAuth = true;
+      this.oauthLoading = true;
+      try {
+        const res = await fetch('/api/oauth/start', { method: 'POST' });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || '启动失败');
+        this.oauthSessionId = data.sessionId;
+        this.oauthAuthUrl = data.authUrl;
+        this.oauthStep = 1;
+      } catch (err) {
+        this.oauthError = '启动失败: ' + err.message;
+      } finally {
+        this.oauthLoading = false;
+      }
+    },
+
+    cancelOAuth() {
+      this.showOAuth = false;
+    },
+
+    async submitCode() {
+      if (!this.oauthAuthCode.trim()) return;
+      this.oauthLoading = true;
+      this.oauthError = '';
+      try {
+        // Send code to tmux
+        const r1 = await fetch(`/api/oauth/submit-code/${this.oauthSessionId}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ code: this.oauthAuthCode.trim() }),
+        });
+        if (!r1.ok) throw new Error((await r1.json()).error || '提交失败');
+
+        this.oauthStep = 2;
+
+        // Wait for credentials to be written and import
+        const r2 = await fetch(`/api/oauth/import/${this.oauthSessionId}`, { method: 'POST' });
+        const data = await r2.json();
+        if (!r2.ok) throw new Error(data.error || '导入失败');
+
+        this.showOAuth = false;
+        await this.refresh();
+      } catch (err) {
+        this.oauthError = err.message;
+        this.oauthStep = 1;
+      } finally {
+        this.oauthLoading = false;
+      }
     },
 
     fmtDate(ts) {

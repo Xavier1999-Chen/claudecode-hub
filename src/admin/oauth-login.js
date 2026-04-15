@@ -1,115 +1,193 @@
-import http from 'node:http';
 import { randomBytes } from 'node:crypto';
+import { readFile, mkdir, rm } from 'node:fs/promises';
+import { join } from 'node:path';
+import { exec, execFile } from 'node:child_process';
+import { promisify } from 'node:util';
 import fetch from 'node-fetch';
+import { HttpsProxyAgent } from 'https-proxy-agent';
 
-const AUTHORIZE_URL = 'https://claude.ai/oauth/authorize';
-const TOKEN_URL = 'https://platform.claude.com/v1/oauth/token';
+const execAsync = promisify(exec);
+const execFileAsync = promisify(execFile);
 const ME_URL = 'https://api.anthropic.com/v1/me';
-const CLIENT_ID = '9d1c250a-e61b-44d9-88ed-5944d1962f5e';
+
+const proxyUrl = process.env.HTTPS_PROXY || process.env.https_proxy
+               || process.env.HTTP_PROXY  || process.env.http_proxy;
+const proxyAgent = proxyUrl ? new HttpsProxyAgent(proxyUrl) : undefined;
 
 /**
- * Start an OAuth login flow.
- * Returns { getUrl, promise } where:
- *   - getUrl(): returns the authorization URL (callable after server is listening)
- *   - promise: resolves to a new account object when flow completes,
- *              or rejects after 5 minutes
+ * Start `claude login` in a detached tmux session with an isolated CLAUDE_CONFIG_DIR.
+ * Handles two interactive prompts (theme + login method), then captures the authorization URL.
+ * Returns { sessionId, configDir, tmuxSession, authUrl }
  */
-export function startOAuthFlow() {
-  const state = randomBytes(16).toString('hex');
-  let resolve, reject;
-  const promise = new Promise((res, rej) => { resolve = res; reject = rej; });
+export async function startTmuxLogin() {
+  const sessionId = randomBytes(8).toString('hex');
+  const configDir = `/tmp/hub-acc-${sessionId}`;
+  const tmuxSession = `hub-${sessionId}`;
 
-  // Find a free port
-  const server = http.createServer(async (req, res) => {
-    const u = new URL(req.url, 'http://localhost');
-    if (u.pathname !== '/callback') {
-      res.writeHead(404); res.end(); return;
-    }
+  await mkdir(configDir, { recursive: true });
 
-    const returnedState = u.searchParams.get('state');
-    const code = u.searchParams.get('code');
-    const error = u.searchParams.get('error');
+  // Launch claude login in detached tmux session (80-col window)
+  const claudePath = (await execAsync('which claude').catch(() => ({ stdout: 'claude' }))).stdout.trim();
+  const cmd = `tmux new-session -d -x 200 -y 50 -s ${tmuxSession} -e CLAUDE_CONFIG_DIR=${configDir} '${claudePath} login'`;
+  await execAsync(cmd);
 
-    res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
-    res.end('<html><body><script>window.close()</script><p>授权成功，可以关闭此标签页。</p></body></html>');
-    server.close();
-    clearTimeout(timeout);
+  // Step 1: wait for theme prompt, then press Enter to accept default
+  await waitForText(tmuxSession, 'Choose the text style', 10000);
+  await execAsync(`tmux send-keys -t ${tmuxSession} '' Enter`);
+  await sleep(500);
 
-    if (error || returnedState !== state || !code) {
-      reject(new Error(`OAuth error: ${error ?? 'state_mismatch'}`));
-      return;
-    }
+  // Step 2: wait for login method prompt, then send "1" for Claude account
+  await waitForText(tmuxSession, 'Select login method', 8000);
+  await execAsync(`tmux send-keys -t ${tmuxSession} '1' Enter`);
+  await sleep(500);
 
-    try {
-      const account = await exchangeCode(code, `http://localhost:${port}/callback`);
-      resolve(account);
-    } catch (err) {
-      reject(err);
-    }
-  });
+  // Step 3: wait for the authorization URL (up to 20 seconds)
+  const authUrl = await pollForAuthUrl(tmuxSession, 20000);
+  if (!authUrl) {
+    await killTmuxSession(tmuxSession).catch(() => {});
+    throw new Error('未能从 claude login 获取授权链接，请检查 claude 是否正确安装');
+  }
 
-  let port;
-  server.listen(0, '127.0.0.1', () => {
-    port = server.address().port;
-  });
-
-  // Timeout after 5 minutes
-  const timeout = setTimeout(() => {
-    server.close();
-    reject(new Error('OAuth timeout'));
-  }, 5 * 60 * 1000);
-
-  // Return a lazy URL (port is assigned by OS after listen)
-  const getUrl = () => {
-    const params = new URLSearchParams({
-      response_type: 'code',
-      client_id: CLIENT_ID,
-      redirect_uri: `http://localhost:${port}/callback`,
-      scope: 'user:inference',
-      state,
-    });
-    return `${AUTHORIZE_URL}?${params}`;
-  };
-
-  return { getUrl, promise };
+  return { sessionId, configDir, tmuxSession, authUrl };
 }
 
-async function exchangeCode(code, redirectUri) {
-  const body = new URLSearchParams({
-    grant_type: 'authorization_code',
-    code,
-    client_id: CLIENT_ID,
-    redirect_uri: redirectUri,
-  });
+/**
+ * Send the authentication code to the waiting tmux session.
+ */
+export async function submitAuthCode(tmuxSession, code) {
+  // Use execFile to avoid shell interpretation of the code string
+  await execFileAsync('tmux', ['send-keys', '-t', tmuxSession, code]);
+  await sleep(100);
+  await execFileAsync('tmux', ['send-keys', '-t', tmuxSession, 'Enter']);
+}
 
-  const tokenRes = await fetch(TOKEN_URL, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body,
-  });
-  if (!tokenRes.ok) {
-    throw new Error(`Token exchange failed ${tokenRes.status}: ${await tokenRes.text()}`);
+/**
+ * Poll for the .credentials.json file, then import it.
+ * Cleans up tmux session and temp dir when done.
+ * On timeout, captures tmux output for diagnosis (does NOT kill the session).
+ */
+export async function waitForCredentials(configDir, tmuxSession, timeoutMs = 60000) {
+  const credsPath = join(configDir, '.credentials.json');
+  const deadline = Date.now() + timeoutMs;
+
+  while (Date.now() < deadline) {
+    try {
+      const raw = await readFile(credsPath, 'utf8');
+      const parsed = JSON.parse(raw);
+      const creds = parsed.claudeAiOauth ?? parsed;
+      if (creds.accessToken) {
+        // Got credentials — clean up
+        await killTmuxSession(tmuxSession).catch(() => {});
+        const meData = await fetchMe(creds.accessToken);
+        await rm(configDir, { recursive: true, force: true }).catch(() => {});
+        return buildAccount(creds, meData);
+      }
+    } catch {
+      // file not ready yet
+    }
+    await sleep(800);
   }
-  const tokenData = await tokenRes.json();
 
-  // Fetch email
-  const meRes = await fetch(ME_URL, {
-    headers: {
-      authorization: `Bearer ${tokenData.access_token}`,
-      'anthropic-beta': 'oauth-2025-04-20',
-    },
-  });
-  const meData = meRes.ok ? await meRes.json() : {};
+  // Timeout — capture tmux output for diagnosis but keep session alive for retry
+  let tmuxOutput = '';
+  try {
+    const { stdout } = await execAsync(`tmux capture-pane -t ${tmuxSession} -p -S -30`);
+    tmuxOutput = stdout.trim();
+  } catch { /* session may be gone */ }
 
+  const hint = tmuxOutput
+    ? `\nclaude 输出：\n${tmuxOutput.slice(-500)}`
+    : '';
+  throw new Error(`等待凭证超时（60s）${hint}`);
+}
+
+// ── Legacy: manual terminal flow (kept for fallback) ───────────────────────
+
+export function createLoginSession() {
+  const sessionId = randomBytes(8).toString('hex');
+  const configDir = `/tmp/hub-acc-${sessionId}`;
+  const loginCmd = `CLAUDE_CONFIG_DIR=${configDir} claude login`;
+  return { sessionId, configDir, loginCmd };
+}
+
+export async function importCredentials(configDir) {
+  const credsPath = join(configDir, '.credentials.json');
+  let raw;
+  try {
+    raw = await readFile(credsPath, 'utf8');
+  } catch {
+    throw new Error('未找到凭证文件，请先在终端完成 claude login');
+  }
+
+  const parsed = JSON.parse(raw);
+  const creds = parsed.claudeAiOauth ?? parsed;
+
+  if (!creds.accessToken) {
+    throw new Error('凭证文件格式无效，请重新登录');
+  }
+
+  const meData = await fetchMe(creds.accessToken);
+  try { await rm(configDir, { recursive: true, force: true }); } catch {}
+  return buildAccount(creds, meData);
+}
+
+// ── Helpers ────────────────────────────────────────────────────────────────
+
+async function waitForText(tmuxSession, text, timeoutMs) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    try {
+      const { stdout } = await execAsync(`tmux capture-pane -pt ${tmuxSession} -S -100`);
+      if (stdout.includes(text)) return true;
+    } catch { /* not ready */ }
+    await sleep(400);
+  }
+  return false;
+}
+
+async function pollForAuthUrl(tmuxSession, timeoutMs) {
+  const deadline = Date.now() + timeoutMs;
+
+  while (Date.now() < deadline) {
+    try {
+      const { stdout } = await execAsync(`tmux capture-pane -pt ${tmuxSession} -S -100`);
+      // Find the line starting with https:// (the auth URL)
+      const lines = stdout.split('\n');
+      const startIdx = lines.findIndex(l => l.trimStart().startsWith('https://'));
+      if (startIdx !== -1) {
+        // Join lines until we hit a blank line or "Paste code" prompt
+        // Terminal wraps long URLs across multiple lines
+        const urlParts = [];
+        for (let i = startIdx; i < lines.length; i++) {
+          const trimmed = lines[i].trim();
+          if (!trimmed || trimmed.startsWith('Paste') || trimmed.startsWith('>')) break;
+          urlParts.push(trimmed);
+        }
+        const fullUrl = urlParts.join('');
+        if (fullUrl.startsWith('https://')) return fullUrl;
+      }
+    } catch {
+      // tmux session may not be ready yet
+    }
+    await sleep(500);
+  }
+  return null;
+}
+
+async function killTmuxSession(tmuxSession) {
+  await execAsync(`tmux kill-session -t ${tmuxSession}`);
+}
+
+function buildAccount(creds, meData) {
   return {
     id: `acc_${randomBytes(6).toString('hex')}`,
     email: meData.email ?? 'unknown@example.com',
     plan: meData.claude_plan ?? 'pro',
     credentials: {
-      accessToken: tokenData.access_token,
-      refreshToken: tokenData.refresh_token ?? null,
-      expiresAt: Date.now() + (tokenData.expires_in ?? 3600) * 1000,
-      scopes: ['user:inference'],
+      accessToken: creds.accessToken,
+      refreshToken: creds.refreshToken ?? null,
+      expiresAt: creds.expiresAt ?? Date.now() + 3600000,
+      scopes: creds.scopes ?? ['org:create_api_key', 'user:profile', 'user:inference'],
     },
     status: 'idle',
     cooldownUntil: null,
@@ -119,4 +197,23 @@ async function exchangeCode(code, redirectUri) {
     },
     addedAt: Date.now(),
   };
+}
+
+async function fetchMe(accessToken) {
+  try {
+    const res = await fetch(ME_URL, {
+      headers: {
+        authorization: `Bearer ${accessToken}`,
+        'anthropic-beta': 'oauth-2025-04-20',
+      },
+      ...(proxyAgent && { agent: proxyAgent }),
+    });
+    return res.ok ? await res.json() : {};
+  } catch {
+    return {};
+  }
+}
+
+function sleep(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
 }

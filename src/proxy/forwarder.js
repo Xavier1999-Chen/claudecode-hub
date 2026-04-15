@@ -1,13 +1,18 @@
 import fetch from 'node-fetch';
+import { HttpsProxyAgent } from 'https-proxy-agent';
 import { createUsageTapper } from './usage-tracker.js';
 
 const UPSTREAM = 'https://api.anthropic.com';
+
+const proxyUrl = process.env.HTTPS_PROXY || process.env.https_proxy
+               || process.env.HTTP_PROXY  || process.env.http_proxy;
+const proxyAgent = proxyUrl ? new HttpsProxyAgent(proxyUrl) : undefined;
 
 // Headers that must not be forwarded between hops
 const HOP_BY_HOP = new Set([
   'connection', 'keep-alive', 'proxy-authenticate', 'proxy-authorization',
   'te', 'trailers', 'transfer-encoding', 'upgrade',
-  'host', 'authorization', 'content-length',
+  'host', 'authorization', 'x-api-key', 'content-length',
 ]);
 
 /**
@@ -28,6 +33,7 @@ export async function forwardRequest(req, res, account, terminalId, pool) {
   }
   upHeaders['authorization'] = `Bearer ${account.credentials.accessToken}`;
   upHeaders['anthropic-beta'] = addOAuthBeta(upHeaders['anthropic-beta']);
+  if (!upHeaders['anthropic-version']) upHeaders['anthropic-version'] = '2023-06-01';
 
   const url = UPSTREAM + req.url;
 
@@ -37,6 +43,7 @@ export async function forwardRequest(req, res, account, terminalId, pool) {
       method: req.method,
       headers: upHeaders,
       body: req.method !== 'GET' && req.method !== 'HEAD' ? req.rawBody : undefined,
+      ...(proxyAgent && { agent: proxyAgent }),
     });
   } catch (err) {
     pool.getCircuitBreaker(account.id).recordFailure();

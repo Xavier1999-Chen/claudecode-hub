@@ -34,9 +34,11 @@ async function loadConfig() {
 // ── Proxy endpoint ───────────────────────────────────────────────────────
 
 app.use(async (req, res) => {
-  // 1. Validate Bearer token
+  // 1. Validate Bearer token (supports both Authorization: Bearer and x-api-key)
   const auth = req.headers['authorization'] ?? '';
-  const token = auth.startsWith('Bearer ') ? auth.slice(7) : null;
+  const token = auth.startsWith('Bearer ')
+    ? auth.slice(7)
+    : (req.headers['x-api-key'] ?? null);
   if (!token) return res.status(401).json({ error: 'missing_token' });
 
   const terminal = terminals.find(t => t.id === token);
