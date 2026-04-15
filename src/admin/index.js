@@ -177,7 +177,7 @@ async function aggregateUsage(range, group) {
 
   const records = [];
   for (const accId of accountDirs) {
-    const logPath = j(logsDir, accId, 'usage.jsonl');
+    const logPath = join(logsDir, accId, 'usage.jsonl');
     try {
       const text = await readFile(logPath, 'utf8');
       for (const line of text.trim().split('\n')) {
