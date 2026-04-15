@@ -1,5 +1,5 @@
 import express from 'express';
-import { readFile } from 'node:fs/promises';
+import { readFile, readdir } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { join, dirname } from 'node:path';
 import { randomBytes } from 'node:crypto';
@@ -163,12 +163,8 @@ function sanitiseAccount(acc) {
 }
 
 async function aggregateUsage(range, group) {
-  const { readdir, readFile: rf } = await import('node:fs/promises');
-  const { join: j } = await import('node:path');
-  const { fileURLToPath: ftu } = await import('node:url');
-
-  const projectRoot = ftu(new URL('../../..', import.meta.url));
-  const logsDir = j(projectRoot, 'logs');
+  const projectRoot = fileURLToPath(new URL('../../..', import.meta.url));
+  const logsDir = join(projectRoot, 'logs');
 
   const now = Date.now();
   const rangeMs = range === 'today'
@@ -183,7 +179,7 @@ async function aggregateUsage(range, group) {
   for (const accId of accountDirs) {
     const logPath = j(logsDir, accId, 'usage.jsonl');
     try {
-      const text = await rf(logPath, 'utf8');
+      const text = await readFile(logPath, 'utf8');
       for (const line of text.trim().split('\n')) {
         if (!line) continue;
         try {

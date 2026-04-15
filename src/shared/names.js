@@ -28,8 +28,8 @@ export function generateName(existingNames) {
     if (!existing.has(name)) return name;
     attempts++;
   }
-  // Fallback: append random suffix
+  // Fallback: embed suffix in adjective to keep one-hyphen format
   const adj = ADJECTIVES[Math.floor(Math.random() * ADJECTIVES.length)];
   const animal = ANIMALS[Math.floor(Math.random() * ANIMALS.length)];
-  return `${adj}-${animal}-${Math.random().toString(36).slice(2, 6)}`;
+  return `${adj}${Math.random().toString(36).slice(2, 4)}-${animal}`;
 }

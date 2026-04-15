@@ -23,12 +23,13 @@ let terminals = [];
 async function loadConfig() {
   await pool.load();
   terminals = await configStore.readTerminals();
+  // Hot-reload terminals on file change (after initial load)
+  try {
+    watch(configStore.terminalsPath, { persistent: false }, async () => {
+      terminals = await configStore.readTerminals().catch(() => terminals);
+    });
+  } catch { /* terminals.json not yet created */ }
 }
-
-// Hot-reload terminals on file change
-watch(configStore.terminalsPath, { persistent: false }, async () => {
-  terminals = await configStore.readTerminals().catch(() => terminals);
-});
 
 // ── Proxy endpoint ───────────────────────────────────────────────────────
 
