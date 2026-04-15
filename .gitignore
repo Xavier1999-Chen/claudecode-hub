@@ -1,2 +1,3 @@
-tertax-brain/
-.worktrees/
+node_modules/
+config/accounts.json
+logs/
