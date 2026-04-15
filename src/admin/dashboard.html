@@ -1,0 +1,792 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Claude Code Hub</title>
+<script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #F4F1EB; min-height: 100vh; }
+
+/* NAV */
+.nav { background: #1C1917; padding: 0 24px; display: flex; align-items: center; height: 52px; }
+.nav-logo { font-weight: 700; font-size: 15px; color: #E87040; margin-right: 32px; }
+.nav-tab { padding: 0 16px; height: 52px; display: flex; align-items: center; font-size: 13px; color: #78716c; cursor: pointer; border-bottom: 2px solid transparent; user-select: none; }
+.nav-tab.active { color: #fafaf9; border-bottom-color: #E87040; }
+.nav-right { margin-left: auto; }
+.btn { border: none; padding: 7px 14px; border-radius: 7px; font-size: 13px; cursor: pointer; font-weight: 500; }
+.btn-primary { background: #E87040; color: white; }
+.btn-ghost { background: transparent; color: #78716c; border: 1px solid #3d3530; }
+.btn-sm { padding: 4px 10px; font-size: 12px; border-radius: 5px; }
+
+/* MAIN */
+.main { padding: 20px 24px; max-width: 1120px; margin: 0 auto; }
+
+/* TERMINAL BAR */
+.terminal-bar { background: white; border-radius: 12px; border: 1px solid #e7e5e4; margin-bottom: 16px; box-shadow: 0 1px 3px rgba(0,0,0,.05); overflow: hidden; }
+.terminal-bar-main { padding: 12px 16px; display: flex; align-items: center; gap: 12px; }
+.bar-label { font-size: 11px; font-weight: 600; color: #a8a29e; text-transform: uppercase; letter-spacing: .05em; white-space: nowrap; }
+.terminal-list { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; flex: 1; }
+.terminal-chip { display: flex; align-items: center; gap: 7px; border: 1.5px solid #e7e5e4; border-radius: 10px; padding: 6px 11px; cursor: pointer; background: white; }
+.terminal-chip:hover { border-color: #FDDCCC; background: #FEF9F7; }
+.terminal-chip.selected { border-color: #E87040; background: #FEF3EE; }
+.chip-dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+.dot-on { background: #22c55e; } .dot-idle { background: #d4cfc9; }
+.chip-name { font-size: 12px; color: #44403c; font-weight: 600; }
+.terminal-chip.selected .chip-name { color: #C0532A; }
+.chip-sub { font-size: 10px; color: #a8a29e; }
+.terminal-chip.selected .chip-sub { color: #E87040; opacity: 0.8; }
+.chip-mode { font-size: 9px; padding: 1px 5px; border-radius: 4px; font-weight: 700; }
+.chip-mode-auto { background: #ECFDF5; color: #16a34a; }
+.chip-mode-manual { background: #FEF3EE; color: #E87040; }
+.terminal-chip.selected .chip-mode-manual { background: rgba(255,255,255,0.7); }
+.chip-add { border-style: dashed; color: #a8a29e; font-size: 12px; padding: 6px 12px; }
+.chip-add:hover { border-color: #E87040; color: #E87040; }
+.detail-toggle { margin-left: auto; display: flex; align-items: center; gap: 5px; font-size: 11px; color: #a8a29e; cursor: pointer; white-space: nowrap; padding: 4px 8px; border-radius: 6px; border: 1px solid #e7e5e4; background: white; flex-shrink: 0; }
+.detail-toggle:hover { color: #E87040; border-color: #FDDCCC; }
+.toggle-arrow { transition: transform .2s; display: inline-block; font-size: 10px; }
+
+/* DETAIL STRIP */
+.detail-strip { border-top: 1px solid #f0ede8; padding: 14px 16px; background: #FDFCFA; display: flex; align-items: flex-start; gap: 20px; flex-wrap: wrap; }
+.detail-field { display: flex; flex-direction: column; gap: 4px; }
+.detail-label { font-size: 10px; font-weight: 600; color: #a8a29e; text-transform: uppercase; }
+.detail-value { font-size: 13px; color: #1c1917; display: flex; align-items: center; gap: 6px; }
+.detail-token { font-family: 'SF Mono', Consolas, monospace; font-size: 11px; background: #f4f1eb; padding: 3px 8px; border-radius: 5px; }
+.mode-toggle { display: flex; border: 1px solid #e7e5e4; border-radius: 7px; overflow: hidden; }
+.mode-btn { padding: 4px 12px; font-size: 12px; cursor: pointer; background: white; border: none; color: #78716c; }
+.mode-btn.active { background: #E87040; color: white; font-weight: 600; }
+.copy-btn { font-size: 11px; padding: 2px 8px; border-radius: 4px; border: 1px solid #e7e5e4; background: white; cursor: pointer; color: #78716c; }
+.copy-btn:hover { border-color: #E87040; color: #E87040; }
+.rename-btn { font-size: 11px; padding: 2px 8px; border-radius: 4px; border: 1px solid #e7e5e4; background: white; cursor: pointer; color: #78716c; }
+
+/* ACCOUNT GRID */
+.accounts-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 14px; }
+.account-card { background: white; border-radius: 12px; border: 2px solid #e7e5e4; overflow: hidden; cursor: pointer; }
+.account-card:hover:not(.exhausted) { border-color: #FDDCCC; }
+.account-card.mounted { border-color: #E87040; }
+.account-card.exhausted { opacity: .55; cursor: not-allowed; }
+.card-header { padding: 12px 14px 10px; background: #F5C5A8; display: flex; align-items: center; gap: 8px; }
+.card-header.exhausted-hd { background: #FECACA; }
+.card-email { font-size: 13px; font-weight: 600; color: #1c1917; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.plan-badge { font-size: 10px; font-weight: 700; padding: 2px 7px; border-radius: 4px; }
+.badge-pro { background: #E87040; color: white; }
+.badge-max { background: #D97706; color: white; }
+.status-dot { width: 8px; height: 8px; border-radius: 50%; }
+.dot-green { background: #22c55e; } .dot-red { background: #ef4444; } .dot-gray { background: #d4cfc9; }
+.card-body { padding: 12px 14px; }
+.mounted-label { font-size: 11px; color: #E87040; font-weight: 600; margin-bottom: 8px; display: flex; align-items: center; gap: 4px; }
+.usage-row { margin-bottom: 8px; }
+.usage-meta { display: flex; justify-content: space-between; margin-bottom: 3px; font-size: 11px; color: #78716c; }
+.usage-pct { font-weight: 600; color: #1c1917; }
+.progress-bar { height: 6px; background: #f0ede8; border-radius: 3px; overflow: hidden; }
+.progress-fill { height: 100%; border-radius: 3px; background: #E87040; }
+.progress-fill.danger { background: #ef4444; }
+.card-footer { padding: 8px 14px 10px; border-top: 1px solid #f0ede8; display: flex; flex-wrap: wrap; gap: 5px; }
+.footer-chip { font-size: 10px; background: #FEF3EE; color: #E87040; border-radius: 5px; padding: 2px 7px; font-weight: 600; }
+
+/* TERMINALS TABLE */
+.table-wrap { background: white; border-radius: 12px; border: 1px solid #e7e5e4; overflow: hidden; }
+table { width: 100%; border-collapse: collapse; font-size: 13px; }
+th { padding: 10px 14px; text-align: left; font-size: 11px; font-weight: 600; color: #a8a29e; text-transform: uppercase; letter-spacing: .04em; border-bottom: 1px solid #f0ede8; background: #FDFCFA; }
+td { padding: 11px 14px; border-bottom: 1px solid #f5f3f0; color: #44403c; vertical-align: middle; }
+tr:last-child td { border-bottom: none; }
+tr:hover td { background: #FDFAF8; }
+.token-cell { font-family: 'SF Mono', Consolas, monospace; font-size: 11px; background: #f4f1eb; padding: 3px 8px; border-radius: 5px; display: inline-flex; align-items: center; gap: 6px; }
+.mode-tag { font-size: 10px; font-weight: 700; padding: 2px 7px; border-radius: 5px; }
+.tag-auto { background: #ECFDF5; color: #16a34a; }
+.tag-manual { background: #FEF3EE; color: #E87040; }
+.age-badge { font-size: 10px; background: #f4f1eb; color: #78716c; padding: 2px 7px; border-radius: 5px; }
+.inline-edit { border: 1px solid #e7e5e4; border-radius: 5px; padding: 3px 8px; font-size: 13px; width: 130px; }
+.inline-edit:focus { outline: none; border-color: #E87040; }
+.del-btn { color: #ef4444; font-size: 12px; padding: 3px 8px; border-radius: 4px; border: 1px solid transparent; background: none; cursor: pointer; }
+.del-btn:hover { border-color: #fca5a5; background: #fef2f2; }
+
+/* USAGE PAGE */
+.usage-controls { display: flex; align-items: center; gap: 12px; margin-bottom: 20px; flex-wrap: wrap; }
+.range-group, .group-group { display: flex; border: 1px solid #e7e5e4; border-radius: 8px; overflow: hidden; background: white; }
+.range-btn, .group-btn { padding: 6px 14px; font-size: 12px; cursor: pointer; background: white; border: none; color: #78716c; }
+.range-btn.active, .group-btn.active { background: #E87040; color: white; font-weight: 600; }
+.stat-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 12px; margin-bottom: 20px; }
+.stat-card { background: white; border-radius: 10px; border: 1px solid #e7e5e4; padding: 16px; }
+.stat-label { font-size: 11px; color: #a8a29e; margin-bottom: 4px; }
+.stat-value { font-size: 22px; font-weight: 700; color: #1c1917; }
+.stat-sub { font-size: 11px; color: #78716c; margin-top: 3px; }
+.charts-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 20px; }
+.chart-card { background: white; border-radius: 12px; border: 1px solid #e7e5e4; padding: 16px; }
+.chart-title { font-size: 13px; font-weight: 600; color: #1c1917; margin-bottom: 12px; }
+.chart-full { grid-column: 1 / -1; }
+.breakdown-layout { display: flex; gap: 16px; }
+.breakdown-list { width: 200px; flex-shrink: 0; display: flex; flex-direction: column; gap: 4px; overflow-y: auto; max-height: 220px; }
+.breakdown-item { padding: 6px 10px; border-radius: 7px; cursor: pointer; font-size: 12px; color: #44403c; border: 1.5px solid transparent; }
+.breakdown-item:hover { background: #FEF9F7; border-color: #FDDCCC; }
+.breakdown-item.selected { background: #FEF3EE; border-color: #E87040; color: #C0532A; font-weight: 600; }
+.breakdown-chart { flex: 1; min-width: 0; }
+.selector-label { font-size: 10px; font-weight: 600; color: #a8a29e; text-transform: uppercase; margin-bottom: 6px; }
+.detail-table { background: white; border-radius: 12px; border: 1px solid #e7e5e4; overflow: hidden; }
+
+/* MODAL */
+.modal-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,.4); display: flex; align-items: center; justify-content: center; z-index: 100; }
+.modal { background: white; border-radius: 14px; padding: 24px; width: 360px; }
+.modal-title { font-size: 16px; font-weight: 700; color: #1c1917; margin-bottom: 16px; }
+.form-row { margin-bottom: 14px; }
+.form-label { font-size: 12px; font-weight: 600; color: #44403c; margin-bottom: 5px; display: block; }
+.form-input { width: 100%; border: 1px solid #e7e5e4; border-radius: 7px; padding: 8px 10px; font-size: 13px; }
+.form-input:focus { outline: none; border-color: #E87040; }
+.modal-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 8px; }
+</style>
+</head>
+<body x-data="hub()" x-init="init()">
+
+<!-- NAV -->
+<nav class="nav">
+  <div class="nav-logo">&#x2B21; Claude Hub</div>
+  <div class="nav-tab" :class="{active: tab==='accounts'}" @click="tab='accounts'">账号</div>
+  <div class="nav-tab" :class="{active: tab==='terminals'}" @click="tab='terminals'">终端</div>
+  <div class="nav-tab" :class="{active: tab==='usage'}" @click="tab='usage'; loadUsage()">用量</div>
+  <div class="nav-right">
+    <button class="btn btn-primary" @click="tab==='terminals' ? showNewTerminal=true : startOAuth()">
+      <span x-text="tab==='terminals' ? '+ 新建终端' : '+ 添加账号'"></span>
+    </button>
+  </div>
+</nav>
+
+<!-- ===== ACCOUNTS TAB ===== -->
+<div class="main" x-show="tab==='accounts'">
+
+  <!-- Terminal Bar -->
+  <div class="terminal-bar">
+    <div class="terminal-bar-main">
+      <span class="bar-label">终端</span>
+      <div class="terminal-list">
+        <template x-for="t in terminals" :key="t.id">
+          <div class="terminal-chip" :class="{selected: selectedTerminal?.id===t.id}" @click="selectTerminal(t)">
+            <span class="chip-dot" :class="t.lastUsedAt ? 'dot-on' : 'dot-idle'"></span>
+            <span class="chip-name" x-text="t.name"></span>
+            <span class="chip-sub" x-text="mountedAccountEmail(t)"></span>
+            <span class="chip-mode" :class="t.mode==='auto' ? 'chip-mode-auto' : 'chip-mode-manual'" x-text="t.mode==='auto'?'自动':'手动'"></span>
+          </div>
+        </template>
+        <div class="terminal-chip chip-add" @click="tab='terminals'; showNewTerminal=true">+ 新建</div>
+      </div>
+      <div class="detail-toggle" @click="detailOpen=!detailOpen" x-show="selectedTerminal">
+        <span x-text="detailOpen ? '收起详情' : '展开详情'"></span>
+        <span class="toggle-arrow" :style="detailOpen ? '' : 'transform:rotate(180deg)'">&#x25B2;</span>
+      </div>
+    </div>
+
+    <!-- Detail Strip -->
+    <div class="detail-strip" x-show="selectedTerminal && detailOpen" x-transition>
+      <div class="detail-field">
+        <span class="detail-label">终端名称</span>
+        <div class="detail-value">
+          <span x-show="!editingName" x-text="selectedTerminal?.name"></span>
+          <input x-show="editingName" class="inline-edit" x-model="editNameValue"
+            @keydown.enter="saveTerminalName()" @keydown.escape="editingName=false">
+          <button class="rename-btn" x-show="!editingName" @click="startRename()">重命名</button>
+          <button class="btn btn-primary btn-sm" x-show="editingName" @click="saveTerminalName()">保存</button>
+        </div>
+      </div>
+      <div class="detail-field">
+        <span class="detail-label">Token</span>
+        <div class="detail-value">
+          <span class="detail-token" x-text="selectedTerminal?.id"></span>
+          <button class="copy-btn" @click="copyToken(selectedTerminal?.id)">复制</button>
+        </div>
+      </div>
+      <div class="detail-field">
+        <span class="detail-label">模式</span>
+        <div class="mode-toggle">
+          <button class="mode-btn" :class="{active: selectedTerminal?.mode==='auto'}" @click="setMode('auto')">自动</button>
+          <button class="mode-btn" :class="{active: selectedTerminal?.mode==='manual'}" @click="setMode('manual')">手动</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Accounts Grid -->
+  <div x-show="selectedTerminal">
+    <p style="font-size:12px;color:#a8a29e;margin-bottom:12px;">
+      点击账号卡片将终端 <strong x-text="selectedTerminal?.name"></strong> 挂载到该账号
+    </p>
+  </div>
+  <div class="accounts-grid">
+    <template x-for="acc in accounts" :key="acc.id">
+      <div class="account-card"
+        :class="{mounted: isMounted(acc), exhausted: isExhausted(acc)}"
+        @click="mountAccount(acc)">
+        <div class="card-header" :class="{'exhausted-hd': isExhausted(acc)}">
+          <span class="card-email" x-text="acc.email"></span>
+          <span class="plan-badge" :class="acc.plan==='max'?'badge-max':'badge-pro'" x-text="acc.plan?.toUpperCase()??'PRO'"></span>
+          <span class="status-dot" :class="statusDotClass(acc)"></span>
+        </div>
+        <div class="card-body">
+          <div class="mounted-label" x-show="isMounted(acc)">&#x2713; 已挂载</div>
+          <!-- 5h window -->
+          <div class="usage-row">
+            <div class="usage-meta">
+              <span>5小时窗口</span>
+              <span class="usage-pct" x-text="pct5h(acc)+'%'"></span>
+            </div>
+            <div class="progress-bar">
+              <div class="progress-fill" :class="{danger: pct5h(acc)>85}" :style="`width:${pct5h(acc)}%`"></div>
+            </div>
+            <div style="font-size:10px;color:#a8a29e;margin-top:2px"
+              x-text="fmtK(acc.rateLimit?.window5h?.used)+'k / '+fmtK(acc.rateLimit?.window5h?.limit)+'k tokens'"></div>
+          </div>
+          <!-- weekly -->
+          <div class="usage-row">
+            <div class="usage-meta">
+              <span>本周</span>
+              <span class="usage-pct" x-text="pctWeekly(acc)+'%'"></span>
+            </div>
+            <div class="progress-bar">
+              <div class="progress-fill" :class="{danger: pctWeekly(acc)>85}" :style="`width:${pctWeekly(acc)}%`"></div>
+            </div>
+            <div style="font-size:10px;color:#a8a29e;margin-top:2px"
+              x-text="fmtK(acc.rateLimit?.weeklyTokens?.used)+'k / '+fmtK(acc.rateLimit?.weeklyTokens?.limit)+'k tokens'"></div>
+          </div>
+        </div>
+        <div class="card-footer">
+          <template x-for="t in terminalsOnAccount(acc.id)" :key="t.id">
+            <span class="footer-chip" x-text="t.name"></span>
+          </template>
+        </div>
+      </div>
+    </template>
+  </div>
+</div>
+
+<!-- ===== TERMINALS TAB ===== -->
+<div class="main" x-show="tab==='terminals'">
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>名称</th>
+          <th>Token</th>
+          <th>模式</th>
+          <th>账号</th>
+          <th>今日用量</th>
+          <th>本周用量</th>
+          <th>创建时间</th>
+          <th>存在时长</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        <template x-for="t in terminals" :key="t.id">
+          <tr>
+            <td>
+              <span x-show="editTerminalId !== t.id" x-text="t.name" style="cursor:pointer" @dblclick="startTableRename(t)"></span>
+              <input x-show="editTerminalId === t.id" class="inline-edit" x-model="editTerminalName"
+                @keydown.enter="saveTableRename(t)" @keydown.escape="editTerminalId=null">
+            </td>
+            <td>
+              <span class="token-cell">
+                <span x-text="t.id.slice(0,20)+'…'"></span>
+                <button class="copy-btn" @click="copyToken(t.id)">复制</button>
+              </span>
+            </td>
+            <td><span class="mode-tag" :class="t.mode==='auto'?'tag-auto':'tag-manual'" x-text="t.mode==='auto'?'自动':'手动'"></span></td>
+            <td x-text="accountEmail(t.accountId) || '—'"></td>
+            <td x-text="terminalUsageToday(t.id)"></td>
+            <td x-text="terminalUsageWeekly(t.id)"></td>
+            <td x-text="fmtDate(t.createdAt)"></td>
+            <td><span class="age-badge" x-text="age(t.createdAt)"></span></td>
+            <td><button class="del-btn" @click="deleteTerminal(t.id)">删除</button></td>
+          </tr>
+        </template>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- ===== USAGE TAB ===== -->
+<div class="main" x-show="tab==='usage'">
+  <div class="usage-controls">
+    <div class="range-group">
+      <button class="range-btn" :class="{active: usageRange==='today'}" @click="usageRange='today'; loadUsage()">今日</button>
+      <button class="range-btn" :class="{active: usageRange==='7d'}" @click="usageRange='7d'; loadUsage()">近7天</button>
+      <button class="range-btn" :class="{active: usageRange==='30d'}" @click="usageRange='30d'; loadUsage()">近30天</button>
+    </div>
+    <div class="group-group">
+      <button class="group-btn" :class="{active: usageGroup==='account'}" @click="usageGroup='account'; renderCharts()">按账号</button>
+      <button class="group-btn" :class="{active: usageGroup==='terminal'}" @click="usageGroup='terminal'; renderCharts()">按终端</button>
+    </div>
+  </div>
+
+  <!-- Stat cards -->
+  <div class="stat-cards">
+    <div class="stat-card">
+      <div class="stat-label">总费用</div>
+      <div class="stat-value" x-text="'$'+totalUsd"></div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">总 Token</div>
+      <div class="stat-value" x-text="totalTokens"></div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">请求次数</div>
+      <div class="stat-value" x-text="totalRequests"></div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">日均费用</div>
+      <div class="stat-value" x-text="'$'+avgDaily"></div>
+    </div>
+  </div>
+
+  <div class="charts-grid">
+    <!-- Daily bar chart -->
+    <div class="chart-card chart-full">
+      <div class="chart-title">每日费用</div>
+      <canvas id="dailyChart" height="80"></canvas>
+    </div>
+    <!-- Donut -->
+    <div class="chart-card">
+      <div class="chart-title">模型占比</div>
+      <canvas id="donutChart" height="180"></canvas>
+    </div>
+    <!-- Model breakdown -->
+    <div class="chart-card">
+      <div class="chart-title">模型费用分布</div>
+      <div class="breakdown-layout">
+        <div>
+          <div class="selector-label" id="selector-label">选择账号</div>
+          <div class="breakdown-list">
+            <template x-for="item in breakdownItems" :key="item.id">
+              <div class="breakdown-item" :class="{selected: selectedBreakdown===item.id}" @click="selectedBreakdown=item.id; renderBreakdown()" x-text="item.label"></div>
+            </template>
+          </div>
+        </div>
+        <div class="breakdown-chart">
+          <canvas id="breakdownChart"></canvas>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Detail table -->
+  <div class="detail-table">
+    <table>
+      <thead>
+        <tr>
+          <th x-text="usageGroup==='account'?'账号':'终端'"></th>
+          <th>请求数</th>
+          <th>Input tokens</th>
+          <th>Output tokens</th>
+          <th>费用</th>
+          <th>占比</th>
+        </tr>
+      </thead>
+      <tbody>
+        <template x-for="row in detailRows" :key="row.id">
+          <tr>
+            <td x-text="row.label"></td>
+            <td x-text="row.requests"></td>
+            <td x-text="fmtK(row.inTokens)+'k'"></td>
+            <td x-text="fmtK(row.outTokens)+'k'"></td>
+            <td x-text="'$'+row.usd"></td>
+            <td x-text="row.pct+'%'"></td>
+          </tr>
+        </template>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- ===== NEW TERMINAL MODAL ===== -->
+<div class="modal-backdrop" x-show="showNewTerminal" @click.self="showNewTerminal=false">
+  <div class="modal">
+    <div class="modal-title">新建终端</div>
+    <div class="form-row">
+      <label class="form-label">终端名称</label>
+      <div style="display:flex;gap:8px">
+        <input class="form-input" x-model="newTerminalName" placeholder="brave-koala" @keydown.enter="createTerminal()">
+        <button class="btn btn-ghost" @click="rollName()" title="随机生成">&#x1F3B2;</button>
+      </div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" @click="showNewTerminal=false">取消</button>
+      <button class="btn btn-primary" @click="createTerminal()">创建</button>
+    </div>
+  </div>
+</div>
+
+<script>
+function hub() {
+  return {
+    tab: 'accounts',
+    accounts: [],
+    terminals: [],
+    selectedTerminal: null,
+    detailOpen: false,
+    editingName: false,
+    editNameValue: '',
+    editTerminalId: null,
+    editTerminalName: '',
+    showNewTerminal: false,
+    newTerminalName: '',
+
+    // Usage
+    usageRange: '7d',
+    usageGroup: 'account',
+    usageRecords: [],
+    totalUsd: '0.00',
+    totalTokens: '0',
+    totalRequests: '0',
+    avgDaily: '0.00',
+    breakdownItems: [],
+    selectedBreakdown: null,
+    detailRows: [],
+    _dailyChart: null,
+    _donutChart: null,
+    _breakdownChart: null,
+
+    async init() {
+      await this.refresh();
+    },
+
+    async refresh() {
+      const [accs, terms] = await Promise.all([
+        fetch('/api/accounts').then(r => r.json()),
+        fetch('/api/terminals').then(r => r.json()),
+      ]);
+      this.accounts = accs;
+      this.terminals = terms;
+      if (this.selectedTerminal) {
+        this.selectedTerminal = terms.find(t => t.id === this.selectedTerminal.id) ?? null;
+      }
+    },
+
+    selectTerminal(t) {
+      if (this.selectedTerminal?.id === t.id) {
+        this.selectedTerminal = null;
+        this.detailOpen = false;
+      } else {
+        this.selectedTerminal = t;
+        this.detailOpen = true;
+      }
+    },
+
+    isMounted(acc) {
+      if (!this.selectedTerminal) return false;
+      return this.selectedTerminal.accountId === acc.id;
+    },
+
+    isExhausted(acc) {
+      return acc.status === 'exhausted';
+    },
+
+    statusDotClass(acc) {
+      if (acc.status === 'exhausted') return 'dot-red';
+      if (acc.status === 'idle') return 'dot-green';
+      return 'dot-gray';
+    },
+
+    async mountAccount(acc) {
+      if (!this.selectedTerminal) return;
+      if (this.isExhausted(acc)) return;
+      await fetch(`/api/terminals/${this.selectedTerminal.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ accountId: acc.id, mode: 'manual' }),
+      });
+      await this.refresh();
+    },
+
+    mountedAccountEmail(t) {
+      if (!t.accountId) return '未挂载';
+      const acc = this.accounts.find(a => a.id === t.accountId);
+      return acc?.email ?? t.accountId;
+    },
+
+    terminalsOnAccount(accId) {
+      return this.terminals.filter(t => t.accountId === accId);
+    },
+
+    accountEmail(accId) {
+      return this.accounts.find(a => a.id === accId)?.email ?? null;
+    },
+
+    pct5h(acc) {
+      const rl = acc.rateLimit?.window5h;
+      if (!rl || !rl.limit) return 0;
+      return Math.min(100, Math.round(rl.used / rl.limit * 100));
+    },
+
+    pctWeekly(acc) {
+      const rl = acc.rateLimit?.weeklyTokens;
+      if (!rl || !rl.limit) return 0;
+      return Math.min(100, Math.round(rl.used / rl.limit * 100));
+    },
+
+    fmtK(n) {
+      if (!n) return '0';
+      return (n / 1000).toFixed(1);
+    },
+
+    async setMode(mode) {
+      if (!this.selectedTerminal) return;
+      await fetch(`/api/terminals/${this.selectedTerminal.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mode }),
+      });
+      await this.refresh();
+    },
+
+    startRename() {
+      this.editingName = true;
+      this.editNameValue = this.selectedTerminal?.name ?? '';
+    },
+
+    async saveTerminalName() {
+      if (!this.selectedTerminal) return;
+      await fetch(`/api/terminals/${this.selectedTerminal.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: this.editNameValue }),
+      });
+      this.editingName = false;
+      await this.refresh();
+    },
+
+    startTableRename(t) {
+      this.editTerminalId = t.id;
+      this.editTerminalName = t.name;
+    },
+
+    async saveTableRename(t) {
+      await fetch(`/api/terminals/${t.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: this.editTerminalName }),
+      });
+      this.editTerminalId = null;
+      await this.refresh();
+    },
+
+    copyToken(token) {
+      navigator.clipboard.writeText(token).catch(() => {});
+    },
+
+    async deleteTerminal(id) {
+      if (!confirm('确认删除此终端？')) return;
+      await fetch(`/api/terminals/${id}`, { method: 'DELETE' });
+      await this.refresh();
+    },
+
+    async rollName() {
+      const res = await fetch('/api/terminals').then(r => r.json());
+      const names = res.map(t => t.name);
+      // Simple client-side roll (mirrors server logic)
+      const adjs = ['brave','fuzzy','lazy','swift','quiet','happy','bold','calm','dark','eager'];
+      const animals = ['koala','penguin','otter','falcon','panda','lemur','gecko','bison','crane','dingo'];
+      let name;
+      do {
+        name = adjs[Math.floor(Math.random()*adjs.length)] + '-' + animals[Math.floor(Math.random()*animals.length)];
+      } while (names.includes(name));
+      this.newTerminalName = name;
+    },
+
+    async createTerminal() {
+      await fetch('/api/terminals', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: this.newTerminalName || undefined }),
+      });
+      this.showNewTerminal = false;
+      this.newTerminalName = '';
+      await this.refresh();
+    },
+
+    async startOAuth() {
+      const { url, sessionId } = await fetch('/api/oauth/start', { method: 'POST' }).then(r => r.json());
+      window.open(url, '_blank');
+      // Poll for completion
+      const poll = setInterval(async () => {
+        const status = await fetch(`/api/oauth/status/${sessionId}`).then(r => r.json());
+        if (status.status === 'done') {
+          clearInterval(poll);
+          await this.refresh();
+        } else if (status.status === 'error') {
+          clearInterval(poll);
+          alert('OAuth 失败: ' + status.error);
+        }
+      }, 1500);
+    },
+
+    fmtDate(ts) {
+      if (!ts) return '—';
+      return new Date(ts).toLocaleDateString('zh-CN', { month: 'short', day: 'numeric' });
+    },
+
+    age(ts) {
+      if (!ts) return '—';
+      const diff = Date.now() - ts;
+      const d = Math.floor(diff / 86400000);
+      if (d > 0) return `${d}天`;
+      const h = Math.floor(diff / 3600000);
+      if (h > 0) return `${h}小时`;
+      return `${Math.floor(diff / 60000)}分钟`;
+    },
+
+    terminalUsageToday(termId) {
+      const today = new Date().setHours(0,0,0,0);
+      const recs = this.usageRecords.filter(r => r.terminalId === termId && r.ts >= today);
+      const usd = recs.reduce((s, r) => s + (r.usd ?? 0), 0);
+      return usd ? '$' + usd.toFixed(4) : '—';
+    },
+
+    terminalUsageWeekly(termId) {
+      const weekAgo = Date.now() - 7*86400000;
+      const recs = this.usageRecords.filter(r => r.terminalId === termId && r.ts >= weekAgo);
+      const usd = recs.reduce((s, r) => s + (r.usd ?? 0), 0);
+      return usd ? '$' + usd.toFixed(4) : '—';
+    },
+
+    async loadUsage() {
+      const data = await fetch(`/api/usage?range=${this.usageRange}&group=${this.usageGroup}`).then(r => r.json());
+      this.usageRecords = data.records ?? [];
+      this.computeStats();
+      this.renderCharts();
+    },
+
+    computeStats() {
+      const recs = this.usageRecords;
+      const usd = recs.reduce((s, r) => s + (r.usd ?? 0), 0);
+      const tokens = recs.reduce((s, r) => s + (r.in ?? 0) + (r.out ?? 0), 0);
+      const days = this.usageRange === 'today' ? 1 : this.usageRange === '7d' ? 7 : 30;
+      this.totalUsd = usd.toFixed(4);
+      this.totalTokens = (tokens / 1000).toFixed(1) + 'k';
+      this.totalRequests = recs.length.toString();
+      this.avgDaily = (usd / days).toFixed(4);
+    },
+
+    renderCharts() {
+      this.renderDaily();
+      this.renderDonut();
+      this.buildBreakdownItems();
+      if (!this.selectedBreakdown && this.breakdownItems.length) {
+        this.selectedBreakdown = this.breakdownItems[0].id;
+        document.getElementById('selector-label').textContent =
+          this.usageGroup === 'account' ? '选择账号' : '选择终端';
+      }
+      this.renderBreakdown();
+      this.buildDetailRows();
+    },
+
+    renderDaily() {
+      const recs = this.usageRecords;
+      // Group by day and by account/terminal
+      const days = {};
+      const keys = new Set();
+      for (const r of recs) {
+        const day = new Date(r.ts).toLocaleDateString('zh-CN', { month: 'numeric', day: 'numeric' });
+        const key = this.usageGroup === 'account' ? r.accountId : r.terminalId;
+        if (!days[day]) days[day] = {};
+        days[day][key] = (days[day][key] ?? 0) + (r.usd ?? 0);
+        keys.add(key);
+      }
+      const labels = Object.keys(days).sort();
+      const keyArr = [...keys];
+      const colors = ['#E87040','#22c55e','#3b82f6','#a855f7','#f59e0b','#ec4899','#14b8a6'];
+      const datasets = keyArr.map((k, i) => ({
+        label: this.labelFor(k),
+        data: labels.map(d => days[d]?.[k] ?? 0),
+        backgroundColor: colors[i % colors.length],
+        stack: 'a',
+      }));
+
+      const ctx = document.getElementById('dailyChart').getContext('2d');
+      if (this._dailyChart) this._dailyChart.destroy();
+      this._dailyChart = new Chart(ctx, {
+        type: 'bar',
+        data: { labels, datasets },
+        options: { plugins: { legend: { display: false } }, scales: { x: { stacked: true }, y: { stacked: true } } },
+      });
+    },
+
+    renderDonut() {
+      const models = {};
+      for (const r of this.usageRecords) {
+        const m = r.mdl?.includes('opus') ? 'Opus' : r.mdl?.includes('haiku') ? 'Haiku' : 'Sonnet';
+        models[m] = (models[m] ?? 0) + (r.usd ?? 0);
+      }
+      const ctx = document.getElementById('donutChart').getContext('2d');
+      if (this._donutChart) this._donutChart.destroy();
+      this._donutChart = new Chart(ctx, {
+        type: 'doughnut',
+        data: {
+          labels: Object.keys(models),
+          datasets: [{ data: Object.values(models), backgroundColor: ['#E87040','#3b82f6','#22c55e'] }],
+        },
+        options: { plugins: { legend: { position: 'right' } } },
+      });
+    },
+
+    buildBreakdownItems() {
+      const ids = [...new Set(this.usageRecords.map(r => this.usageGroup === 'account' ? r.accountId : r.terminalId))];
+      this.breakdownItems = ids.map(id => ({ id, label: this.labelFor(id) }));
+      document.getElementById('selector-label').textContent =
+        this.usageGroup === 'account' ? '选择账号' : '选择终端';
+    },
+
+    renderBreakdown() {
+      const id = this.selectedBreakdown;
+      if (!id) return;
+      const recs = this.usageRecords.filter(r =>
+        (this.usageGroup === 'account' ? r.accountId : r.terminalId) === id
+      );
+      const models = {};
+      for (const r of recs) {
+        const m = r.mdl ?? 'unknown';
+        models[m] = (models[m] ?? 0) + (r.usd ?? 0);
+      }
+      const ctx = document.getElementById('breakdownChart').getContext('2d');
+      if (this._breakdownChart) this._breakdownChart.destroy();
+      this._breakdownChart = new Chart(ctx, {
+        type: 'bar',
+        data: {
+          labels: Object.keys(models),
+          datasets: [{ data: Object.values(models), backgroundColor: '#E87040' }],
+        },
+        options: { plugins: { legend: { display: false } }, indexAxis: 'y' },
+      });
+    },
+
+    buildDetailRows() {
+      const grouped = {};
+      for (const r of this.usageRecords) {
+        const key = this.usageGroup === 'account' ? r.accountId : r.terminalId;
+        if (!grouped[key]) grouped[key] = { requests: 0, inTokens: 0, outTokens: 0, usd: 0 };
+        grouped[key].requests++;
+        grouped[key].inTokens += r.in ?? 0;
+        grouped[key].outTokens += r.out ?? 0;
+        grouped[key].usd += r.usd ?? 0;
+      }
+      const total = Object.values(grouped).reduce((s, v) => s + v.usd, 0) || 1;
+      this.detailRows = Object.entries(grouped).map(([id, v]) => ({
+        id,
+        label: this.labelFor(id),
+        requests: v.requests,
+        inTokens: v.inTokens,
+        outTokens: v.outTokens,
+        usd: v.usd.toFixed(4),
+        pct: (v.usd / total * 100).toFixed(1),
+      })).sort((a, b) => parseFloat(b.usd) - parseFloat(a.usd));
+    },
+
+    labelFor(id) {
+      if (this.usageGroup === 'account') {
+        return this.accounts.find(a => a.id === id)?.email ?? id;
+      }
+      return this.terminals.find(t => t.id === id)?.name ?? id;
+    },
+  };
+}
+</script>
+</body>
+</html>
