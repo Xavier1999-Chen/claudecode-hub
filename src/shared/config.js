@@ -9,8 +9,9 @@ export function createConfigStore(configDir) {
     try {
       const text = await readFile(path, 'utf8');
       return JSON.parse(text);
-    } catch {
-      return [];
+    } catch (err) {
+      if (err.code === 'ENOENT') return [];
+      throw err;
     }
   }
 
