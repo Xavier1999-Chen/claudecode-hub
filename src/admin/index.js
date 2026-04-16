@@ -1,5 +1,5 @@
 import express from 'express';
-import { readFile, readdir } from 'node:fs/promises';
+import { readFile as readFileAsync, readdir } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { join, dirname } from 'node:path';
 import { randomBytes } from 'node:crypto';
@@ -9,13 +9,16 @@ import { createLoginSession, importCredentials, startTmuxLogin, submitAuthCode, 
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PORT = process.env.ADMIN_PORT ?? 3182;
+const DIST_DIR = join(__dirname, 'frontend', 'dist');
 const app = express();
 app.use(express.json());
 
-// Serve dashboard
-app.get('/', async (_req, res) => {
-  const html = await readFile(join(__dirname, 'dashboard.html'), 'utf8');
-  res.send(html);
+// Serve React frontend static files
+app.use(express.static(DIST_DIR));
+
+// SPA fallback — non-/api/ requests return index.html
+app.get(/^(?!\/api\/).*/, (_req, res) => {
+  res.sendFile(join(DIST_DIR, 'index.html'));
 });
 
 // ── Accounts ─────────────────────────────────────────────────────────────
@@ -296,7 +299,7 @@ async function aggregateUsage(range, group) {
   for (const accId of accountDirs) {
     const logPath = join(logsDir, accId, 'usage.jsonl');
     try {
-      const text = await readFile(logPath, 'utf8');
+      const text = await readFileAsync(logPath, 'utf8');
       for (const line of text.trim().split('\n')) {
         if (!line) continue;
         try {
