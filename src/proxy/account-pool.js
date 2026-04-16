@@ -32,7 +32,8 @@ export class AccountPool {
     if (terminal.mode === 'manual') {
       return this.#pickManual(terminal.accountId);
     }
-    return this.#pickAuto();
+    // Pass current accountId so auto-mode stays sticky until the account is unavailable
+    return this.#pickAuto(terminal.accountId);
   }
 
   getAccount(id) {
@@ -108,8 +109,9 @@ export class AccountPool {
       };
     }
 
-    // Persist asynchronously (fire-and-forget, failures are non-fatal)
-    this.#configStore.writeAccounts(this.#accounts).catch(() => {});
+    // Note: rate limit data is intentionally NOT persisted to disk here.
+    // Admin probe (syncRateLimit) is the sole writer of rate-limit disk state,
+    // preventing flip-flopping between proxy response headers and admin probes.
   }
 
   /**
@@ -146,18 +148,25 @@ export class AccountPool {
     return acc;
   }
 
-  #pickAuto() {
-    const candidates = this.#accounts
-      .filter(a => a.status !== 'exhausted' && this.#ensureCB(a.id).canRequest())
-      .sort((a, b) => {
-        // Sort by 5h utilization ascending (least used first); fall back to addedAt
-        const uA = a.rateLimit?.window5h?.utilization ?? 0;
-        const uB = b.rateLimit?.window5h?.utilization ?? 0;
-        if (uA !== uB) return uA - uB;
-        return a.addedAt - b.addedAt;
-      });
-    if (candidates.length === 0) throw new Error('503: no available accounts');
-    return candidates[0];
+  #pickAuto(preferredId = null) {
+    const available = this.#accounts
+      .filter(a => a.status !== 'exhausted' && this.#ensureCB(a.id).canRequest());
+    if (available.length === 0) throw new Error('503: no available accounts');
+
+    // Prefer the current account if it's still available — stay sticky until exhausted.
+    // This prevents switching accounts immediately when a terminal enters auto mode.
+    if (preferredId) {
+      const preferred = available.find(a => a.id === preferredId);
+      if (preferred) return preferred;
+    }
+
+    // Preferred is unavailable (exhausted / circuit-broken) — pick least loaded
+    return available.sort((a, b) => {
+      const uA = a.rateLimit?.window5h?.utilization ?? 0;
+      const uB = b.rateLimit?.window5h?.utilization ?? 0;
+      if (uA !== uB) return uA - uB;
+      return a.addedAt - b.addedAt;
+    })[0];
   }
 
   #ensureCB(accountId) {
@@ -175,16 +184,9 @@ export class AccountPool {
   }
 
   #startWatch() {
-    try {
-      this.#watcher = watch(this.#configStore.accountsPath, { persistent: false }, async () => {
-        this.#accounts = await this.#configStore.readAccounts().catch(() => this.#accounts);
-      });
-    } catch {
-      // fs.watch not available in test environments
-    }
-    // Polling fallback for WSL2 where fs.watch is unreliable (inotify limitations).
-    // Merges disk credentials into in-memory accounts to avoid overwriting rate-limit state.
-    setInterval(async () => {
+    // Merge helper: sync credentials and account list from disk without overwriting
+    // in-memory rate-limit state (which is fresher from actual API response headers).
+    const mergeFromDisk = async () => {
       try {
         const fresh = await this.#configStore.readAccounts();
         for (const freshAcc of fresh) {
@@ -202,6 +204,16 @@ export class AccountPool {
         for (const a of fresh) if (!memIds.has(a.id)) this.#accounts.push(a);
         this.#accounts = this.#accounts.filter(a => freshIds.has(a.id));
       } catch { /* ignore */ }
-    }, 15000).unref(); // every 15s, unref so it doesn't block process exit
+    };
+
+    try {
+      // fs.watch fires when admin writes accounts.json — merge credentials only,
+      // never do a full replace that would overwrite fresher in-memory rate-limit state.
+      this.#watcher = watch(this.#configStore.accountsPath, { persistent: false }, mergeFromDisk);
+    } catch {
+      // fs.watch not available in test environments
+    }
+    // Polling fallback for WSL2 where fs.watch is unreliable (inotify limitations).
+    setInterval(mergeFromDisk, 15000).unref();
   }
 }
