@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
+    "start": "bash start.sh",
     "proxy": "node src/proxy/index.js",
     "admin": "node src/admin/index.js",
     "build": "cd src/admin/frontend && npm run build",
