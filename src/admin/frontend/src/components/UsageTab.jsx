@@ -1,0 +1,333 @@
+import { useState, useEffect, useMemo } from 'react'
+import { getUsage } from '../api.js'
+import {
+  BarChart, Bar, XAxis, YAxis, Tooltip, Legend, ResponsiveContainer, Cell,
+  PieChart, Pie, Text
+} from 'recharts'
+
+const PALETTE = ['#E87040', '#93c5fd', '#6ee7b7', '#c4b5fd', '#fde68a', '#f9a8d4', '#5eead4']
+const MODEL_COLORS = { sonnet: '#E87040', haiku: '#FDDCCC', opus: '#C0532A' }
+
+function modelKey(mdl) {
+  if (!mdl) return 'unknown'
+  if (mdl.includes('opus')) return 'opus'
+  if (mdl.includes('haiku')) return 'haiku'
+  return 'sonnet'
+}
+
+function modelLabel(key) {
+  return { sonnet: 'Sonnet 4.6', haiku: 'Haiku 4.5', opus: 'Opus 4.6' }[key] ?? key
+}
+
+function fmtK(n) { if (!n) return '0'; return (n / 1000).toFixed(1) }
+function fmtUsd(n) { return n < 0.01 ? n.toFixed(4) : n.toFixed(2) }
+
+// Doughnut center label custom component
+function DonutCenter({ cx, cy, total, label }) {
+  return (
+    <>
+      <text x={cx} y={cy - 8} textAnchor="middle" fill="#1c1917" fontSize={18} fontWeight={700}>
+        ${fmtUsd(total)}
+      </text>
+      <text x={cx} y={cy + 12} textAnchor="middle" fill="#78716c" fontSize={12}>
+        {label}
+      </text>
+    </>
+  )
+}
+
+export default function UsageTab({ accounts, terminals }) {
+  const [range, setRange] = useState('7d')
+  const [group, setGroup] = useState('account')
+  const [records, setRecords] = useState([])
+  const [prevRecords, setPrevRecords] = useState([])
+  const [loading, setLoading] = useState(false)
+  const [selectedBreakdown, setSelectedBreakdown] = useState(null)
+
+  useEffect(() => {
+    setLoading(true)
+    getUsage(range, group).then(data => {
+      setRecords(data.records ?? [])
+      setPrevRecords(data.prevRecords ?? [])
+      setLoading(false)
+    })
+  }, [range, group])
+
+  const rangeLabel = range === 'today' ? '今日' : range === '7d' ? '7天' : '30天'
+  const trendLabel = range === 'today' ? '较昨日' : range === '7d' ? '较上周' : '较上月'
+  const days = range === 'today' ? 1 : range === '7d' ? 7 : 30
+
+  // ── Stats ────────────────────────────────────────────────────────────────────
+  const totalUsd = useMemo(() => records.reduce((s, r) => s + (r.usd ?? 0), 0), [records])
+  const totalTokens = useMemo(() => records.reduce((s, r) => s + (r.in ?? 0) + (r.out ?? 0), 0), [records])
+  const totalReqs = records.length
+  const avgDaily = totalUsd / days
+
+  const prevUsd = useMemo(() => prevRecords.reduce((s, r) => s + (r.usd ?? 0), 0), [prevRecords])
+  const prevTokens = useMemo(() => prevRecords.reduce((s, r) => s + (r.in ?? 0) + (r.out ?? 0), 0), [prevRecords])
+  const prevReqs = prevRecords.length
+
+  const trendUsd = prevUsd > 0 ? Math.round((totalUsd - prevUsd) / prevUsd * 100) : null
+  const trendTok = prevTokens > 0 ? Math.round((totalTokens - prevTokens) / prevTokens * 100) : null
+  const trendReqs = prevReqs > 0 ? Math.round((totalReqs - prevReqs) / prevReqs * 100) : null
+
+  const yStart = new Date(); yStart.setDate(yStart.getDate() - 1); yStart.setHours(0, 0, 0, 0)
+  const yEnd = new Date(); yEnd.setHours(0, 0, 0, 0)
+  const yesterdayUsd = records.filter(r => r.ts >= yStart.getTime() && r.ts < yEnd.getTime()).reduce((s, r) => s + (r.usd ?? 0), 0)
+
+  // ── Daily chart data ──────────────────────────────────────────────────────────
+  const groupKey = r => group === 'account' ? r.accountId : r.terminalId
+  const labelFor = id => {
+    if (group === 'account') return accounts.find(a => a.id === id)?.email ?? id
+    return terminals.find(t => t.id === id)?.name ?? id
+  }
+
+  const dailyData = useMemo(() => {
+    const dayMap = {}
+    const keysSet = new Set()
+    for (const r of records) {
+      const day = new Date(r.ts).toLocaleDateString('zh-CN', { month: 'numeric', day: 'numeric' })
+      const k = groupKey(r)
+      if (!dayMap[day]) dayMap[day] = {}
+      dayMap[day][k] = (dayMap[day][k] ?? 0) + (r.usd ?? 0)
+      keysSet.add(k)
+    }
+    const todayLabel = new Date().toLocaleDateString('zh-CN', { month: 'numeric', day: 'numeric' })
+    return {
+      rows: Object.keys(dayMap).sort().map(d => ({ day: d === todayLabel ? '今日' : d, ...dayMap[d] })),
+      keys: [...keysSet],
+    }
+  }, [records, group, accounts, terminals])
+
+  // ── Donut data ────────────────────────────────────────────────────────────────
+  const donutData = useMemo(() => {
+    const map = {}
+    for (const r of records) {
+      const k = modelKey(r.mdl)
+      map[k] = (map[k] ?? 0) + (r.usd ?? 0)
+    }
+    return Object.entries(map).map(([k, v]) => ({ name: modelLabel(k), value: v, color: MODEL_COLORS[k] ?? '#a8a29e' }))
+  }, [records])
+  const donutTotal = donutData.reduce((s, d) => s + d.value, 0) || 1
+
+  // ── Breakdown items ───────────────────────────────────────────────────────────
+  const breakdownItems = useMemo(() => {
+    const ids = [...new Set(records.map(groupKey))]
+    return ids.map((id, i) => ({
+      id,
+      label: labelFor(id),
+      mode: group === 'terminal' ? (terminals.find(t => t.id === id)?.mode ?? null) : null,
+      color: PALETTE[i % PALETTE.length],
+    }))
+  }, [records, group, accounts, terminals])
+
+  // Auto-select first breakdown item
+  useEffect(() => {
+    setSelectedBreakdown(breakdownItems[0]?.id ?? null)
+  }, [breakdownItems])
+
+  const breakdownChartData = useMemo(() => {
+    if (!selectedBreakdown) return []
+    const recs = records.filter(r => groupKey(r) === selectedBreakdown)
+    const map = {}
+    for (const r of recs) {
+      const m = r.mdl ?? 'unknown'
+      map[m] = (map[m] ?? 0) + (r.usd ?? 0)
+    }
+    return Object.entries(map).map(([name, value]) => ({ name, value }))
+  }, [records, selectedBreakdown, group])
+
+  // ── Detail rows ───────────────────────────────────────────────────────────────
+  const detailRows = useMemo(() => {
+    const grouped = {}
+    for (const r of records) {
+      const k = groupKey(r)
+      if (!grouped[k]) grouped[k] = { requests: 0, inTokens: 0, outTokens: 0, usd: 0 }
+      grouped[k].requests++
+      grouped[k].inTokens += r.in ?? 0
+      grouped[k].outTokens += r.out ?? 0
+      grouped[k].usd += r.usd ?? 0
+    }
+    const total = Object.values(grouped).reduce((s, v) => s + v.usd, 0) || 1
+    return Object.entries(grouped).map(([id, v]) => ({
+      id, label: labelFor(id),
+      requests: v.requests,
+      inTokens: v.inTokens,
+      outTokens: v.outTokens,
+      usd: v.usd.toFixed(4),
+      pct: (v.usd / total * 100).toFixed(1),
+    })).sort((a, b) => parseFloat(b.usd) - parseFloat(a.usd))
+  }, [records, group, accounts, terminals])
+
+  function Trend({ value, label }) {
+    if (value === null) return null
+    const cls = value >= 0 ? 'trend-up' : 'trend-down'
+    return <div className={`stat-trend ${cls}`}>{value >= 0 ? '↑' : '↓'}{Math.abs(value)}% {label}</div>
+  }
+
+  const selectedItem = breakdownItems.find(i => i.id === selectedBreakdown)
+
+  return (
+    <div className="main">
+      <div className="usage-header">
+        <h1 className="usage-title">用量统计</h1>
+        <p className="usage-subtitle">基于每次 API 响应中的 token 数据累计</p>
+      </div>
+
+      <div className="usage-controls">
+        <div className="range-group">
+          {[['today','今日'],['7d','近 7 天'],['30d','近 30 天']].map(([v, l]) => (
+            <button key={v} className={`range-btn ${range === v ? 'active' : ''}`} onClick={() => setRange(v)}>{l}</button>
+          ))}
+        </div>
+        <div className="group-group">
+          <button className={`group-btn ${group === 'account' ? 'active' : ''}`} onClick={() => setGroup('account')}>按账号</button>
+          <button className={`group-btn ${group === 'terminal' ? 'active' : ''}`} onClick={() => setGroup('terminal')}>按终端</button>
+        </div>
+        {loading && <span style={{ fontSize: 12, color: '#a8a29e' }}><span className="spinner" />加载中…</span>}
+      </div>
+
+      {/* Stat Cards */}
+      <div className="stat-cards">
+        <div className="stat-card">
+          <div className="stat-label">总费用（{rangeLabel}）</div>
+          <div className="stat-value">${fmtUsd(totalUsd)}</div>
+          <Trend value={trendUsd} label={trendLabel} />
+        </div>
+        <div className="stat-card">
+          <div className="stat-label">总 Token</div>
+          <div className="stat-value">{totalTokens >= 1e6 ? (totalTokens/1e6).toFixed(1)+'M' : fmtK(totalTokens)+'k'}</div>
+          <Trend value={trendTok} label={trendLabel} />
+        </div>
+        <div className="stat-card">
+          <div className="stat-label">请求次数</div>
+          <div className="stat-value">{totalReqs}</div>
+          <Trend value={trendReqs} label={trendLabel} />
+        </div>
+        <div className="stat-card">
+          <div className="stat-label">日均费用</div>
+          <div className="stat-value">${fmtUsd(avgDaily)}</div>
+          {yesterdayUsd > 0 && <div className="stat-trend trend-neutral">昨日 ${fmtUsd(yesterdayUsd)}</div>}
+        </div>
+      </div>
+
+      {/* Charts row */}
+      <div className="charts-grid">
+        {/* Daily bar chart */}
+        <div className="chart-card">
+          <div className="chart-title-row">
+            <span className="chart-title">每日费用</span>
+            <span className="chart-subtitle">近 {rangeLabel}</span>
+          </div>
+          <ResponsiveContainer width="100%" height={220}>
+            <BarChart data={dailyData.rows} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
+              <XAxis dataKey="day" tick={{ fontSize: 12 }} axisLine={false} tickLine={false} />
+              <YAxis tickFormatter={v => '$' + v.toFixed(2)} tick={{ fontSize: 11 }} axisLine={false} tickLine={false} width={56} />
+              <Tooltip formatter={(v, name) => ['$' + v.toFixed(4), name]} />
+              <Legend wrapperStyle={{ fontSize: 12 }} />
+              {dailyData.keys.map((k, i) => (
+                <Bar key={k} dataKey={k} name={labelFor(k)} stackId="a" fill={PALETTE[i % PALETTE.length]} radius={i === dailyData.keys.length - 1 ? [3, 3, 0, 0] : [0, 0, 0, 0]} maxBarSize={52} />
+              ))}
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
+
+        {/* Donut chart */}
+        <div className="chart-card">
+          <div className="chart-title">模型占比</div>
+          <div className="donut-wrap">
+            <PieChart width={200} height={200}>
+              <Pie
+                data={donutData}
+                cx={100} cy={100}
+                innerRadius={60} outerRadius={90}
+                dataKey="value"
+                startAngle={90} endAngle={-270}
+                strokeWidth={0}
+              >
+                {donutData.map((d, i) => <Cell key={i} fill={d.color} />)}
+              </Pie>
+              <DonutCenter cx={100} cy={100} total={donutTotal} label={rangeLabel} />
+            </PieChart>
+          </div>
+          <div className="donut-legend">
+            {donutData.map(d => (
+              <div key={d.name} className="legend-row">
+                <div className="legend-left">
+                  <span className="legend-dot" style={{ background: d.color }} />
+                  <span className="legend-name">{d.name}</span>
+                </div>
+                <span className="legend-pct">{(d.value / donutTotal * 100).toFixed(0)}%</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {/* Breakdown */}
+      <div className="breakdown-card">
+        <div className="breakdown-layout">
+          <div className="breakdown-sidebar">
+            <div className="breakdown-sidebar-label">{group === 'account' ? '选择账号' : '选择终端'}</div>
+            <div className="breakdown-list">
+              {breakdownItems.map(item => (
+                <div
+                  key={item.id}
+                  className={`breakdown-item ${selectedBreakdown === item.id ? 'selected' : ''}`}
+                  onClick={() => setSelectedBreakdown(item.id)}
+                >
+                  <div className="breakdown-item-row">
+                    <span className="breakdown-dot" style={{ background: item.color }} />
+                    <span className="breakdown-item-name">{item.label}</span>
+                  </div>
+                  {item.mode && <div className="breakdown-item-sub">{item.mode === 'auto' ? '自动' : '手动'}</div>}
+                </div>
+              ))}
+            </div>
+          </div>
+          <div className="breakdown-main">
+            <div className="breakdown-chart-title">
+              {selectedItem ? `${selectedItem.label} — 模型费用分布（近 ${rangeLabel}）` : '—'}
+            </div>
+            <ResponsiveContainer width="100%" height={220}>
+              <BarChart data={breakdownChartData} layout="vertical" margin={{ top: 4, right: 16, left: 8, bottom: 0 }}>
+                <XAxis type="number" tickFormatter={v => '$' + v.toFixed(2)} tick={{ fontSize: 11 }} axisLine={false} tickLine={false} />
+                <YAxis type="category" dataKey="name" tick={{ fontSize: 12 }} axisLine={false} tickLine={false} width={140} />
+                <Tooltip formatter={v => '$' + v.toFixed(4)} />
+                <Bar dataKey="value" fill="#E87040" radius={[0, 4, 4, 0]} maxBarSize={28} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+      </div>
+
+      {/* Detail Table */}
+      <div className="detail-table">
+        <table>
+          <thead>
+            <tr>
+              <th>{group === 'account' ? '账号' : '终端'}</th>
+              <th>请求数</th>
+              <th>Input Tokens</th>
+              <th>Output Tokens</th>
+              <th>费用</th>
+              <th>占比</th>
+            </tr>
+          </thead>
+          <tbody>
+            {detailRows.map(row => (
+              <tr key={row.id}>
+                <td>{row.label}</td>
+                <td>{row.requests}</td>
+                <td>{fmtK(row.inTokens)}k</td>
+                <td>{fmtK(row.outTokens)}k</td>
+                <td>${row.usd}</td>
+                <td>{row.pct}%</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  )
+}

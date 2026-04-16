@@ -17,54 +17,64 @@ function costPerToken(model) {
   for (const [prefix, rates] of Object.entries(COSTS)) {
     if (model.includes(prefix.replace('claude-', ''))) return rates;
   }
-  return { in: 3, out: 15 }; // default to sonnet pricing
+  return { in: 3, out: 15 };
 }
 
 /**
  * Creates a Transform stream that:
  * 1. Passes all chunks through unchanged.
- * 2. Detects SSE `message_delta` events and appends to usage.jsonl.
+ * 2. Accumulates token counts from message_start (input) and message_delta (output),
+ *    then writes one usage record per request to usage.jsonl.
  */
 export function createUsageTapper({ accountId, terminalId, model, logsDir = DEFAULT_LOGS_DIR }) {
   let buffer = '';
+  let inTok = 0;
+  let outTok = 0;
 
   const tapper = new Transform({
     async transform(chunk, _enc, cb) {
       buffer += chunk.toString();
-      // Process complete SSE lines
       const lines = buffer.split('\n');
       buffer = lines.pop(); // keep incomplete last line
+
       for (const line of lines) {
-        if (line.startsWith('data: ')) {
-          try {
-            const event = JSON.parse(line.slice(6));
-            if (event.type === 'message_delta' && event.usage) {
-              const { input_tokens: inTok, output_tokens: outTok } = event.usage;
-              const rates = costPerToken(model);
-              const usd = (inTok * rates.in + outTok * rates.out) / 1e6;
-              const record = {
-                ts: Date.now(),
-                terminalId,
-                accountId,
-                mdl: model,
-                in: inTok,
-                out: outTok,
-                usd: Math.round(usd * 1e8) / 1e8,
-              };
-              const logDir = join(logsDir, accountId);
-              const logPath = join(logDir, 'usage.jsonl');
-              await mkdir(logDir, { recursive: true });
-              await appendFile(logPath, JSON.stringify(record) + '\n');
-            }
-          } catch {
-            // Not JSON or write failed — skip
+        if (!line.startsWith('data: ')) continue;
+        try {
+          const event = JSON.parse(line.slice(6));
+          // input tokens are in message_start
+          if (event.type === 'message_start' && event.message?.usage) {
+            inTok += event.message.usage.input_tokens ?? 0;
           }
-        }
+          // output tokens are in message_delta
+          if (event.type === 'message_delta' && event.usage) {
+            outTok += event.usage.output_tokens ?? 0;
+          }
+        } catch { /* skip */ }
       }
+
       this.push(chunk);
       cb();
     },
-    flush(cb) {
+    async flush(cb) {
+      // Write usage record when stream ends
+      if (inTok > 0 || outTok > 0) {
+        try {
+          const rates = costPerToken(model);
+          const usd = (inTok * rates.in + outTok * rates.out) / 1e6;
+          const record = {
+            ts: Date.now(),
+            terminalId,
+            accountId,
+            mdl: model,
+            in: inTok,
+            out: outTok,
+            usd: Math.round(usd * 1e8) / 1e8,
+          };
+          const logDir = join(logsDir, accountId);
+          await mkdir(logDir, { recursive: true });
+          await appendFile(join(logDir, 'usage.jsonl'), JSON.stringify(record) + '\n');
+        } catch { /* write failure is non-fatal */ }
+      }
       cb();
     },
   });

@@ -57,13 +57,17 @@ app.post('/api/accounts/:id/force-offline', async (req, res) => {
   if (!acc) return res.status(404).json({ error: 'not_found' });
   acc.status = 'exhausted';
   await configStore.writeAccounts(accounts);
+  // Force-offline: only reassign auto-mode terminals
+  await reassignTerminals(req.params.id, accounts.filter(a => a.id !== req.params.id), ['auto']);
   res.json(sanitiseAccount(acc));
 });
 
 app.delete('/api/accounts/:id', async (req, res) => {
   let accounts = await configStore.readAccounts();
-  accounts = accounts.filter(a => a.id !== req.params.id);
-  await configStore.writeAccounts(accounts);
+  const remaining = accounts.filter(a => a.id !== req.params.id);
+  // Delete: reassign ALL terminals (both auto and manual)
+  await reassignTerminals(req.params.id, remaining, null);
+  await configStore.writeAccounts(remaining);
   res.json({ ok: true });
 });
 
@@ -210,11 +214,13 @@ async function aggregateUsage(range, group) {
     ? now - new Date().setHours(0, 0, 0, 0)
     : range === '30d' ? 30 * 86400000 : 7 * 86400000;
   const since = now - rangeMs;
+  const prevSince = since - rangeMs;
 
   let accountDirs = [];
   try { accountDirs = await readdir(logsDir); } catch { return buildEmptyResult(); }
 
   const records = [];
+  const prevRecords = [];
   for (const accId of accountDirs) {
     const logPath = join(logsDir, accId, 'usage.jsonl');
     try {
@@ -224,16 +230,43 @@ async function aggregateUsage(range, group) {
         try {
           const r = JSON.parse(line);
           if (r.ts >= since) records.push(r);
+          else if (r.ts >= prevSince) prevRecords.push(r);
         } catch { /* skip malformed */ }
       }
     } catch { /* no log yet */ }
   }
 
-  return { records, range, group };
+  return { records, prevRecords, range, group };
 }
 
 function buildEmptyResult() {
   return { records: [], range: '7d', group: 'account' };
+}
+
+// Reassign terminals away from a removed/exhausted account.
+// modes: ['auto'] to only reassign auto-mode terminals, null for all modes.
+// Picks the best alternative: idle first, then soonest cooldown expiry.
+async function reassignTerminals(removedAccountId, availableAccounts, modes) {
+  const terminals = await configStore.readTerminals();
+  const affected = terminals.filter(t =>
+    t.accountId === removedAccountId &&
+    (modes === null || modes.includes(t.mode))
+  );
+  if (!affected.length) return;
+
+  const available = availableAccounts.filter(a => a.status !== 'exhausted');
+  const best = available.length
+    ? available.sort((a, b) =>
+        (a.rateLimit?.window5h?.used ?? 0) - (b.rateLimit?.window5h?.used ?? 0)
+      )[0]
+    : availableAccounts
+        .filter(a => a.cooldownUntil)
+        .sort((a, b) => a.cooldownUntil - b.cooldownUntil)[0] ?? null;
+
+  for (const t of affected) {
+    t.accountId = best?.id ?? null;
+  }
+  await configStore.writeTerminals(terminals);
 }
 
 // ─────────────────────────────────────────────────────────────────────────
