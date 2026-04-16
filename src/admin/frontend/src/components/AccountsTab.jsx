@@ -104,7 +104,7 @@ export default function AccountsTab({ accounts, terminals, onRefresh, onNewTermi
   }
 
   function isMounted(acc) {
-    return selectedTerminal?.accountId === acc.id
+    return syncedTerminal?.accountId === acc.id
   }
 
   function statusDot(acc) {

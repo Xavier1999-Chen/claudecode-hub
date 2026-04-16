@@ -62,6 +62,22 @@ export class AccountPool {
   }
 
   /**
+   * Pick the least-used account excluding the given set of account IDs.
+   * Returns null if no alternative is available.
+   * @param {Set<string>} excludeIds
+   */
+  selectFallback(excludeIds) {
+    const candidates = this.#accounts
+      .filter(a => !excludeIds.has(a.id) && a.status !== 'exhausted' && this.#ensureCB(a.id).canRequest())
+      .sort((a, b) => {
+        const uA = a.rateLimit?.window5h?.utilization ?? 0;
+        const uB = b.rateLimit?.window5h?.utilization ?? 0;
+        return uA !== uB ? uA - uB : a.addedAt - b.addedAt;
+      });
+    return candidates[0] ?? null;
+  }
+
+  /**
    * Update in-memory rate limit from Anthropic response headers.
    */
   updateRateLimit(accountId, headers) {

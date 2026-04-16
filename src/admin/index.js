@@ -114,11 +114,26 @@ app.post('/api/terminals', async (req, res) => {
   const terminals = await configStore.readTerminals();
   const names = terminals.map(t => t.name);
   const name = req.body.name?.trim() || generateName(names);
+  const mode = req.body.mode ?? 'auto';
+
+  // Auto-assign best available account for auto-mode terminals
+  let accountId = req.body.accountId ?? null;
+  if (mode === 'auto' && !accountId) {
+    const accounts = await configStore.readAccounts();
+    const available = accounts.filter(a => a.status !== 'exhausted');
+    if (available.length) {
+      available.sort((a, b) =>
+        (a.rateLimit?.window5h?.utilization ?? 0) - (b.rateLimit?.window5h?.utilization ?? 0)
+      );
+      accountId = available[0].id;
+    }
+  }
+
   const terminal = {
     id: `sk-hub-${randomBytes(12).toString('hex')}`,
     name,
-    mode: req.body.mode ?? 'auto',
-    accountId: req.body.accountId ?? null,
+    mode,
+    accountId,
     createdAt: Date.now(),
     lastUsedAt: null,
   };

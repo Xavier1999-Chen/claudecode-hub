@@ -73,9 +73,15 @@ app.use(async (req, res) => {
   terminal.lastUsedAt = Date.now();
   configStore.writeTerminals(terminals).catch(() => {});
 
-  // 5. Forward
+  // 5. Forward — onFallback updates terminal accountId when proxy switches accounts
+  function onFallback(newAccount) {
+    terminal.accountId = newAccount.id;
+    configStore.writeTerminals(terminals).catch(() => {});
+    console.log(`[proxy] terminal ${terminal.name} reassigned to ${newAccount.email ?? newAccount.id}`);
+  }
+
   const rq = pool.getRateQueue(account.id);
-  rq.enqueue(() => forwardRequest(req, res, account, terminal.id, pool)).catch(() => {
+  rq.enqueue(() => forwardRequest(req, res, account, terminal.id, pool, new Set(), onFallback)).catch(() => {
     if (!res.headersSent) res.status(500).json({ error: 'forward_failed' });
   });
 });

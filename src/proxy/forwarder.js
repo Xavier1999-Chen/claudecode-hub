@@ -25,7 +25,7 @@ const HOP_BY_HOP = new Set([
  * @param {string} terminalId
  * @param {import('./account-pool.js').AccountPool} pool
  */
-export async function forwardRequest(req, res, account, terminalId, pool) {
+export async function forwardRequest(req, res, account, terminalId, pool, triedIds = new Set(), onFallback = null) {
   // Build upstream headers
   const upHeaders = {};
   for (const [k, v] of Object.entries(req.headers)) {
@@ -33,6 +33,12 @@ export async function forwardRequest(req, res, account, terminalId, pool) {
   }
   upHeaders['authorization'] = `Bearer ${account.credentials.accessToken}`;
   upHeaders['anthropic-beta'] = addOAuthBeta(upHeaders['anthropic-beta']);
+  // Pro accounts don't support 1M context window; strip the flag so Opus works with 200K.
+  // Max accounts keep it as-is.
+  if (account.plan !== 'max') {
+    upHeaders['anthropic-beta'] = upHeaders['anthropic-beta']
+      .split(',').filter(b => b.trim() !== 'context-1m-2025-08-07').join(',');
+  }
   if (!upHeaders['anthropic-version']) upHeaders['anthropic-version'] = '2023-06-01';
 
   const url = UPSTREAM + req.url;
@@ -85,20 +91,23 @@ export async function forwardRequest(req, res, account, terminalId, pool) {
     }
   }
 
-  // Handle rate limiting
-  if (upRes.status === 429) {
+  // Handle rate limiting — 429/529 are quota/load signals, not account failures.
+  // Try to fall back to another account automatically before giving up.
+  if (upRes.status === 429 || upRes.status === 529) {
     const retryAfter = parseInt(upRes.headers.get('retry-after') ?? '0', 10);
-    pool.getCircuitBreaker(account.id).recordFailure();
     if (retryAfter > 0 && retryAfter < 60) {
       pool.getRateQueue(account.id).delay(retryAfter * 1000 + 200);
     }
-    res.status(429).json({ error: 'rate_limited', retryAfter });
-    return;
-  }
-
-  if (upRes.status === 529) {
-    pool.getCircuitBreaker(account.id).recordFailure();
-    res.status(529).json({ error: 'overloaded' });
+    triedIds.add(account.id);
+    let fallback = pool.selectFallback(triedIds);
+    if (fallback) {
+      console.log(`[fwd] ${upRes.status} on ${account.email ?? account.id}, falling back to ${fallback.email ?? fallback.id}`);
+      try { fallback = await pool.ensureFreshToken(fallback); } catch { /* use as-is */ }
+      onFallback?.(fallback);
+      return forwardRequest(req, res, fallback, terminalId, pool, triedIds, onFallback);
+    }
+    const status = upRes.status === 529 ? 529 : 429;
+    res.status(status).json({ error: status === 429 ? 'rate_limited' : 'overloaded', retryAfter });
     return;
   }
 
