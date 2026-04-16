@@ -12,6 +12,15 @@ function fmtExpiry(ts) {
   return h > 0 ? `${h}h ${m}m 后过期` : `${m}m 后过期`
 }
 
+function fmtReset(ts) {
+  if (!ts) return null
+  const diff = ts - Date.now()
+  if (diff <= 0) return '即将重置'
+  const h = Math.floor(diff / 3600000)
+  const m = Math.floor((diff % 3600000) / 60000)
+  return h > 0 ? `${h}h ${m}m 后重置` : `${m}m 后重置`
+}
+
 // Per-card action panel (shown in a popover-style expanded section)
 function AccountActions({ acc, onAction, onClose }) {
   const [renaming, setRenaming] = useState(false)
@@ -107,14 +116,19 @@ export default function AccountsTab({ accounts, terminals, onRefresh, onNewTermi
     return syncedTerminal?.accountId === acc.id
   }
 
+  function isRateLimited(acc) {
+    const w5h = acc.rateLimit?.window5h
+    return w5h?.status === 'blocked' || (w5h?.utilization != null && w5h.utilization >= 1.0)
+  }
+
   function statusDot(acc) {
-    if (acc.status === 'exhausted') return 'dot-red'
+    if (acc.status === 'exhausted' || isRateLimited(acc)) return 'dot-red'
     if (acc.status === 'idle') return 'dot-green'
     return 'dot-gray'
   }
 
   async function mountAccount(acc) {
-    if (!selectedTerminal || acc.status === 'exhausted') return
+    if (!selectedTerminal || acc.status === 'exhausted' || isRateLimited(acc)) return
     if (expandedCard === acc.id) return  // don't mount when actions panel is open
     await updateTerminal(selectedTerminal.id, { accountId: acc.id, mode: 'manual' })
     await onRefresh()
@@ -281,11 +295,13 @@ export default function AccountsTab({ accounts, terminals, onRefresh, onNewTermi
           const p5h = w5h?.utilization != null ? Math.round(w5h.utilization * 100) : null
           const pw  = wk?.utilization  != null ? Math.round(wk.utilization  * 100) : null
           const mounted = isMounted(acc)
-          const exhausted = acc.status === 'exhausted'
+          const exhausted = acc.status === 'exhausted' || isRateLimited(acc)
+          const rateLimited = isRateLimited(acc)
           const terms = terminalsOnAccount(acc.id)
           const actionsOpen = expandedCard === acc.id
           const displayName = acc.nickname || acc.email
           const expiry = fmtExpiry(acc.tokenExpiresAt)
+          const resetLabel = rateLimited ? fmtReset(acc.rateLimit?.window5h?.resetAt) : null
 
           return (
             <div
@@ -335,7 +351,8 @@ export default function AccountsTab({ accounts, terminals, onRefresh, onNewTermi
                 <>
                   <div className="card-body">
                     {mounted && <div className="mounted-label">✓ 已挂载</div>}
-                    {expiry && <div className="token-expiry">{expiry}</div>}
+                    {rateLimited && resetLabel && <div className="token-expiry rate-limited-label">⏸ 冷却中 · {resetLabel}</div>}
+                    {!rateLimited && expiry && <div className="token-expiry">{expiry}</div>}
                     <div className="usage-row">
                       <div className="usage-meta">
                         <span>5小时窗口</span>

@@ -244,3 +244,4 @@ tr:hover td { background: #FDFAF8; }
 .action-btn-danger:hover:not(:disabled) { background: #fee2e2; border-color: #f87171; }
 .action-rename-row { display: flex; gap: 6px; align-items: center; margin-bottom: 4px; }
 .token-expiry { font-size: 11px; color: #a8a29e; margin-bottom: 8px; }
+.rate-limited-label { color: #ef4444; font-weight: 600; }
