@@ -374,20 +374,17 @@ async function reassignTerminals(removedAccountId, availableAccounts, modes) {
 
 // ─────────────────────────────────────────────────────────────────────────
 
-// Auto-sync rate limits for all accounts every 60s
-setInterval(async () => {
+// Probe all accounts on demand (called by frontend adaptive polling)
+app.post('/api/sync-usage-all', async (_req, res) => {
   try {
     const accounts = await configStore.readAccounts();
-    if (!accounts.length) return;
-    for (const acc of accounts) {
-      await syncRateLimit(acc);
-    }
+    for (const acc of accounts) await syncRateLimit(acc);
     await configStore.writeAccounts(accounts);
-    console.log(`[admin] auto-synced usage for ${accounts.length} account(s)`);
+    res.json(accounts.map(sanitiseAccount));
   } catch (err) {
-    console.error('[admin] auto-sync error:', err.message);
+    res.status(500).json({ error: err.message });
   }
-}, 60000);
+});
 
 app.listen(PORT, '127.0.0.1', () => {
   console.log(`[admin] listening on http://127.0.0.1:${PORT}`);

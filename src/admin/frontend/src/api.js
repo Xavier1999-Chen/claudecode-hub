@@ -165,6 +165,21 @@ export async function getUsage(range = '7d', group = 'account') {
   return fetch(`/api/usage?range=${range}&group=${group}`).then(r => r.json())
 }
 
+export async function syncAllUsage() {
+  if (USE_MOCK) {
+    await delay(800)
+    _accounts = _accounts.map(acc => ({
+      ...acc,
+      rateLimit: {
+        window5h: { utilization: Math.random() * 0.6, resetAt: Date.now() + 18000000, status: 'allowed' },
+        weekly: { utilization: Math.random() * 0.4, resetAt: Date.now() + 6 * 86400000, status: 'allowed' },
+      },
+    }))
+    return JSON.parse(JSON.stringify(_accounts))
+  }
+  return fetch('/api/sync-usage-all', { method: 'POST' }).then(r => r.json())
+}
+
 // ── OAuth ─────────────────────────────────────────────────────────────────────
 export async function oauthStart() {
   if (USE_MOCK) {

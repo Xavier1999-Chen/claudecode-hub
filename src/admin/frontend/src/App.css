@@ -118,7 +118,7 @@ tr:hover td { background: #FDFAF8; }
 .inline-edit-table:focus { border-color: #E87040; }
 
 /* ── USAGE PAGE ──────────────────────────────────────────────────────────────── */
-.usage-header { margin-bottom: 20px; }
+.usage-header { margin-bottom: 20px; display: flex; align-items: flex-start; justify-content: space-between; }
 .usage-title { font-size: 26px; font-weight: 700; color: #1c1917; margin-bottom: 4px; }
 .usage-subtitle { font-size: 13px; color: #78716c; }
 .usage-controls { display: flex; align-items: center; gap: 10px; margin-bottom: 20px; flex-wrap: wrap; }

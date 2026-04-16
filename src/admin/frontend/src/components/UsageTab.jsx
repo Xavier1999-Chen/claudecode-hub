@@ -170,8 +170,22 @@ export default function UsageTab({ accounts, terminals }) {
   return (
     <div className="main">
       <div className="usage-header">
-        <h1 className="usage-title">用量统计</h1>
-        <p className="usage-subtitle">基于每次 API 响应中的 token 数据累计</p>
+        <div>
+          <h1 className="usage-title">用量统计</h1>
+          <p className="usage-subtitle">基于每次 API 响应中的 token 数据累计</p>
+        </div>
+        <button
+          className="icon-btn"
+          title="刷新用量数据"
+          onClick={() => {
+            setLoading(true)
+            getUsage(range, group).then(data => {
+              setRecords(data.records ?? [])
+              setPrevRecords(data.prevRecords ?? [])
+              setLoading(false)
+            })
+          }}
+        >↻</button>
       </div>
 
       <div className="usage-controls">
