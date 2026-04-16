@@ -126,8 +126,7 @@ tr:hover td { background: #FDFAF8; }
 .range-btn { padding: 7px 16px; font-size: 14px; cursor: pointer; background: white; border: 1.5px solid #e7e5e4; border-radius: 7px; color: #78716c; transition: border-color 0.15s, color 0.15s; }
 .range-btn:hover { border-color: #FDDCCC; color: #E87040; }
 .range-btn.active { border-color: #E87040; color: #E87040; font-weight: 600; }
-.view-group { display: flex; border: 1.5px solid #e7e5e4; border-radius: 8px; overflow: hidden; background: white; }
-.group-group { display: flex; border: 1.5px solid #e7e5e4; border-radius: 8px; overflow: hidden; background: white; }
+.view-group, .group-group { display: flex; border: 1.5px solid #e7e5e4; border-radius: 8px; overflow: hidden; background: white; }
 .group-btn { padding: 7px 16px; font-size: 14px; cursor: pointer; background: white; border: none; color: #78716c; transition: background 0.15s, color 0.15s; }
 .group-btn:hover { background: #f4f1eb; }
 .group-btn.active { background: #1c1917; color: white; font-weight: 600; }
