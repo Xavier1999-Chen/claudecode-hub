@@ -8,7 +8,7 @@ import {
   mockPrevRecords,
 } from './mock/data.js'
 
-const USE_MOCK = import.meta.env.DEV
+const USE_MOCK = import.meta.env.DEV && import.meta.env.VITE_MOCK !== 'false'
 
 // ── State for mock mutations ─────────────────────────────────────────────────
 let _accounts = [...mockAccounts]
@@ -60,8 +60,11 @@ export async function renameAccount(id, nickname) {
     if (acc) acc.nickname = nickname
     return JSON.parse(JSON.stringify(acc))
   }
-  // Backend doesn't have a rename endpoint yet; store in local state only
-  return { ok: true }
+  return fetch(`/api/accounts/${id}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ nickname }),
+  }).then(r => r.json())
 }
 
 export async function refreshAccountToken(id) {

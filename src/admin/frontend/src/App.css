@@ -96,6 +96,8 @@ body {
 .progress-fill { height: 100%; border-radius: 3px; background: #E87040; }
 .progress-fill.danger { background: #ef4444; }
 .usage-tokens { font-size: 11px; color: #a8a29e; margin-top: 2px; }
+.usage-unsynced { color: #c4b5a0; font-style: italic; }
+.usage-hint { font-size: 10px; color: #c4b5a0; font-weight: normal; }
 .card-footer { padding: 8px 14px 10px; border-top: 1px solid #f0ede8; display: flex; flex-wrap: wrap; gap: 5px; }
 .footer-chip { font-size: 11px; background: #FEF3EE; color: #E87040; border-radius: 5px; padding: 2px 8px; font-weight: 600; }
 .card-actions { padding: 8px 14px; border-top: 1px solid #f0ede8; display: flex; gap: 6px; justify-content: flex-end; }

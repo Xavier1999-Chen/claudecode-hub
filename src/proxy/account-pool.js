@@ -53,16 +53,31 @@ export class AccountPool {
   updateRateLimit(accountId, headers) {
     const acc = this.getAccount(accountId);
     if (!acc) return;
-    const limit = parseInt(headers['x-ratelimit-tokens-limit'], 10);
-    const remaining = parseInt(headers['x-ratelimit-tokens-remaining'], 10);
-    const reset = headers['x-ratelimit-tokens-reset'];
-    if (!isNaN(limit) && !isNaN(remaining)) {
-      acc.rateLimit.window5h.limit = limit;
-      acc.rateLimit.window5h.used = limit - remaining;
+
+    const h5hUtil  = parseFloat(headers['anthropic-ratelimit-unified-5h-utilization']);
+    const h5hReset = parseInt(headers['anthropic-ratelimit-unified-5h-reset'], 10);
+    const h5hStatus = headers['anthropic-ratelimit-unified-5h-status'];
+    const h7dUtil  = parseFloat(headers['anthropic-ratelimit-unified-7d-utilization']);
+    const h7dReset = parseInt(headers['anthropic-ratelimit-unified-7d-reset'], 10);
+    const h7dStatus = headers['anthropic-ratelimit-unified-7d-status'];
+
+    if (!isNaN(h5hUtil)) {
+      if (!acc.rateLimit) acc.rateLimit = {};
+      acc.rateLimit.window5h = {
+        utilization: h5hUtil,
+        resetAt: isNaN(h5hReset) ? null : h5hReset * 1000,
+        status: h5hStatus ?? 'allowed',
+      };
     }
-    if (reset) {
-      acc.rateLimit.window5h.resetAt = new Date(reset).getTime();
+    if (!isNaN(h7dUtil)) {
+      if (!acc.rateLimit) acc.rateLimit = {};
+      acc.rateLimit.weekly = {
+        utilization: h7dUtil,
+        resetAt: isNaN(h7dReset) ? null : h7dReset * 1000,
+        status: h7dStatus ?? 'allowed',
+      };
     }
+
     // Persist asynchronously (fire-and-forget, failures are non-fatal)
     this.#configStore.writeAccounts(this.#accounts).catch(() => {});
   }
@@ -105,9 +120,10 @@ export class AccountPool {
     const candidates = this.#accounts
       .filter(a => a.status !== 'exhausted' && this.#ensureCB(a.id).canRequest())
       .sort((a, b) => {
-        const remA = (a.rateLimit?.window5h?.limit ?? 100000) - (a.rateLimit?.window5h?.used ?? 0);
-        const remB = (b.rateLimit?.window5h?.limit ?? 100000) - (b.rateLimit?.window5h?.used ?? 0);
-        if (remA !== remB) return remB - remA;
+        // Sort by 5h utilization ascending (least used first); fall back to addedAt
+        const uA = a.rateLimit?.window5h?.utilization ?? 0;
+        const uB = b.rateLimit?.window5h?.utilization ?? 0;
+        if (uA !== uB) return uA - uB;
         return a.addedAt - b.addedAt;
       });
     if (candidates.length === 0) throw new Error('503: no available accounts');

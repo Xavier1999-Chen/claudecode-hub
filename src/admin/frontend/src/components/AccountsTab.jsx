@@ -269,8 +269,11 @@ export default function AccountsTab({ accounts, terminals, onRefresh, onNewTermi
 
       <div className="accounts-grid">
         {accounts.map(acc => {
-          const p5h = pct(acc.rateLimit?.window5h?.used, acc.rateLimit?.window5h?.limit)
-          const pw = pct(acc.rateLimit?.weeklyTokens?.used, acc.rateLimit?.weeklyTokens?.limit)
+          const w5h = acc.rateLimit?.window5h
+          const wk = acc.rateLimit?.weekly
+          // utilization is 0-1 from Anthropic headers; null means never synced
+          const p5h = w5h?.utilization != null ? Math.round(w5h.utilization * 100) : null
+          const pw  = wk?.utilization  != null ? Math.round(wk.utilization  * 100) : null
           const mounted = isMounted(acc)
           const exhausted = acc.status === 'exhausted'
           const terms = terminalsOnAccount(acc.id)
@@ -327,22 +330,28 @@ export default function AccountsTab({ accounts, terminals, onRefresh, onNewTermi
                     <div className="usage-row">
                       <div className="usage-meta">
                         <span>5小时窗口</span>
-                        <span className="usage-pct">{p5h}%</span>
+                        <span className="usage-pct">{p5h !== null ? `${p5h}%` : '—'}</span>
                       </div>
-                      <div className="progress-bar">
-                        <div className={`progress-fill ${p5h > 85 ? 'danger' : ''}`} style={{ width: `${p5h}%` }} />
-                      </div>
-                      <div className="usage-tokens">{fmtK(acc.rateLimit?.window5h?.used)}k / {fmtK(acc.rateLimit?.window5h?.limit)}k tokens</div>
+                      {p5h !== null ? (
+                        <div className="progress-bar">
+                          <div className={`progress-fill ${p5h > 85 ? 'danger' : ''}`} style={{ width: `${p5h}%` }} />
+                        </div>
+                      ) : (
+                        <div className="usage-tokens usage-unsynced">点击 ↻ 同步用量</div>
+                      )}
                     </div>
                     <div className="usage-row">
                       <div className="usage-meta">
                         <span>本周</span>
-                        <span className="usage-pct">{pw}%</span>
+                        <span className="usage-pct">{pw !== null ? `${pw}%` : '—'}</span>
                       </div>
-                      <div className="progress-bar">
-                        <div className={`progress-fill ${pw > 85 ? 'danger' : ''}`} style={{ width: `${pw}%` }} />
-                      </div>
-                      <div className="usage-tokens">{fmtK(acc.rateLimit?.weeklyTokens?.used)}k / {fmtK(acc.rateLimit?.weeklyTokens?.limit)}k tokens</div>
+                      {pw !== null ? (
+                        <div className="progress-bar">
+                          <div className={`progress-fill ${pw > 85 ? 'danger' : ''}`} style={{ width: `${pw}%` }} />
+                        </div>
+                      ) : (
+                        <div className="usage-tokens usage-unsynced">点击 ↻ 同步用量</div>
+                      )}
                     </div>
                   </div>
                   {terms.length > 0 && (

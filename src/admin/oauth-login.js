@@ -8,7 +8,7 @@ import { HttpsProxyAgent } from 'https-proxy-agent';
 
 const execAsync = promisify(exec);
 const execFileAsync = promisify(execFile);
-const ME_URL = 'https://api.anthropic.com/v1/me';
+const ROLES_URL = 'https://api.anthropic.com/api/oauth/claude_cli/roles';
 
 const proxyUrl = process.env.HTTPS_PROXY || process.env.https_proxy
                || process.env.HTTP_PROXY  || process.env.http_proxy;
@@ -182,7 +182,7 @@ function buildAccount(creds, meData) {
   return {
     id: `acc_${randomBytes(6).toString('hex')}`,
     email: meData.email ?? 'unknown@example.com',
-    plan: meData.claude_plan ?? 'pro',
+    plan: creds.subscriptionType ?? 'pro',
     credentials: {
       accessToken: creds.accessToken,
       refreshToken: creds.refreshToken ?? null,
@@ -199,16 +199,18 @@ function buildAccount(creds, meData) {
   };
 }
 
-async function fetchMe(accessToken) {
+export async function fetchMe(accessToken) {
   try {
-    const res = await fetch(ME_URL, {
-      headers: {
-        authorization: `Bearer ${accessToken}`,
-        'anthropic-beta': 'oauth-2025-04-20',
-      },
+    const res = await fetch(ROLES_URL, {
+      headers: { authorization: `Bearer ${accessToken}` },
       ...(proxyAgent && { agent: proxyAgent }),
     });
-    return res.ok ? await res.json() : {};
+    if (!res.ok) return {};
+    const data = await res.json();
+    // email is embedded in organization_name: "user@example.com's Organization"
+    const orgName = data.organization_name ?? '';
+    const email = orgName.replace(/'s Organization$/i, '').trim() || null;
+    return { email };
   } catch {
     return {};
   }

@@ -32,13 +32,30 @@ app.post('/api/accounts/:id/refresh-token', async (req, res) => {
   if (!acc) return res.status(404).json({ error: 'not_found' });
   try {
     const { refreshToken } = await import('../proxy/token-manager.js');
+    const { fetchMe } = await import('./oauth-login.js');
     const update = await refreshToken(acc);
     Object.assign(acc.credentials, update.credentials);
+    // Re-fetch email after token refresh (fixes accounts imported with placeholder email)
+    const meData = await fetchMe(acc.credentials.accessToken);
+    if (meData.email) acc.email = meData.email;
+    // Plan comes from subscriptionType in the refreshed credentials
+    if (update.credentials.subscriptionType) acc.plan = update.credentials.subscriptionType;
+    // Probe Anthropic API to sync current rate limit usage from response headers
+    await syncRateLimit(acc);
     await configStore.writeAccounts(accounts);
     res.json(sanitiseAccount(acc));
   } catch (err) {
     res.status(502).json({ error: err.message });
   }
+});
+
+app.patch('/api/accounts/:id', async (req, res) => {
+  const accounts = await configStore.readAccounts();
+  const acc = accounts.find(a => a.id === req.params.id);
+  if (!acc) return res.status(404).json({ error: 'not_found' });
+  if (req.body.nickname !== undefined) acc.nickname = req.body.nickname;
+  await configStore.writeAccounts(accounts);
+  res.json(sanitiseAccount(acc));
 });
 
 app.post('/api/accounts/:id/force-online', async (req, res) => {
@@ -162,6 +179,7 @@ app.post('/api/oauth/import/:sessionId', async (req, res) => {
   try {
     const account = await waitForCredentials(session.configDir, session.tmuxSession);
     oauthSessions.delete(req.params.sessionId); // only delete on success
+    await syncRateLimit(account);
     const accounts = await configStore.readAccounts();
     accounts.push(account);
     await configStore.writeAccounts(accounts);
@@ -195,6 +213,60 @@ app.post('/api/oauth/import-manual/:sessionId', async (req, res) => {
 });
 
 // ── Helpers ───────────────────────────────────────────────────────────────
+
+/**
+ * Make a minimal probe request to Anthropic to read current rate-limit headers,
+ * then update acc.rateLimit in-place. Non-fatal: errors are silently ignored.
+ */
+async function syncRateLimit(acc) {
+  try {
+    const fetch = (await import('node-fetch')).default;
+    const { HttpsProxyAgent } = await import('https-proxy-agent');
+    const proxyUrl = process.env.HTTPS_PROXY || process.env.https_proxy
+                  || process.env.HTTP_PROXY  || process.env.http_proxy;
+    const agent = proxyUrl ? new HttpsProxyAgent(proxyUrl) : undefined;
+
+    const res = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'authorization': `Bearer ${acc.credentials.accessToken}`,
+        'anthropic-version': '2023-06-01',
+        'anthropic-beta': 'oauth-2025-04-20',
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: 'claude-haiku-4-5-20251001',
+        max_tokens: 1,
+        messages: [{ role: 'user', content: '0' }],
+      }),
+      ...(agent && { agent }),
+    });
+
+    const h5hUtil  = parseFloat(res.headers.get('anthropic-ratelimit-unified-5h-utilization'));
+    const h5hReset = parseInt(res.headers.get('anthropic-ratelimit-unified-5h-reset'), 10);
+    const h5hStatus = res.headers.get('anthropic-ratelimit-unified-5h-status');
+    const h7dUtil  = parseFloat(res.headers.get('anthropic-ratelimit-unified-7d-utilization'));
+    const h7dReset = parseInt(res.headers.get('anthropic-ratelimit-unified-7d-reset'), 10);
+    const h7dStatus = res.headers.get('anthropic-ratelimit-unified-7d-status');
+
+    if (!isNaN(h5hUtil)) {
+      if (!acc.rateLimit) acc.rateLimit = {};
+      acc.rateLimit.window5h = {
+        utilization: h5hUtil,
+        resetAt: isNaN(h5hReset) ? null : h5hReset * 1000,
+        status: h5hStatus ?? 'allowed',
+      };
+    }
+    if (!isNaN(h7dUtil)) {
+      if (!acc.rateLimit) acc.rateLimit = {};
+      acc.rateLimit.weekly = {
+        utilization: h7dUtil,
+        resetAt: isNaN(h7dReset) ? null : h7dReset * 1000,
+        status: h7dStatus ?? 'allowed',
+      };
+    }
+  } catch (err) { console.error('[syncRateLimit] error:', err.message); }
+}
 
 function sanitiseAccount(acc) {
   const { credentials, ...rest } = acc;
