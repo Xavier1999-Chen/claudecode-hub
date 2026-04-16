@@ -43,6 +43,7 @@ export async function forwardRequest(req, res, account, terminalId, pool) {
       method: req.method,
       headers: upHeaders,
       body: req.method !== 'GET' && req.method !== 'HEAD' ? req.rawBody : undefined,
+      compress: false,
       ...(proxyAgent && { agent: proxyAgent }),
     });
   } catch (err) {
@@ -50,6 +51,8 @@ export async function forwardRequest(req, res, account, terminalId, pool) {
     res.status(502).json({ error: 'upstream_error', message: err.message });
     return;
   }
+
+  console.log(`[fwd] ${upRes.status} ${upRes.headers.get('content-type')} beta=${upHeaders['anthropic-beta']}`);
 
   // Handle rate limiting
   if (upRes.status === 429) {
@@ -91,7 +94,7 @@ export async function forwardRequest(req, res, account, terminalId, pool) {
     upRes.body.pipe(tapper).pipe(res);
     upRes.body.on('error', () => res.end());
   } else {
-    const body = await upRes.buffer();
+    const body = Buffer.from(await upRes.arrayBuffer());
     // Try to capture usage from JSON response
     try {
       const json = JSON.parse(body.toString());

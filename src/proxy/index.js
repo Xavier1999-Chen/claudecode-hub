@@ -42,7 +42,10 @@ app.use(async (req, res) => {
   if (!token) return res.status(401).json({ error: 'missing_token' });
 
   const terminal = terminals.find(t => t.id === token);
-  if (!terminal) return res.status(401).json({ error: 'invalid_token' });
+  if (!terminal) {
+    console.log(`[proxy] invalid_token: ${token?.slice(0, 20)}… (${terminals.length} terminals loaded)`);
+    return res.status(401).json({ error: 'invalid_token' });
+  }
 
   // 2. Select account
   let account;
@@ -59,6 +62,8 @@ app.use(async (req, res) => {
   } catch (err) {
     return res.status(502).json({ error: 'token_refresh_failed', message: err.message });
   }
+
+  console.log(`[proxy] ${req.method} ${req.url} terminal=${terminal.name} account=${account.email ?? account.id} token=${account.credentials?.accessToken?.slice(0, 20)}…`);
 
   // 4. Update terminal lastUsedAt (fire-and-forget)
   terminal.lastUsedAt = Date.now();
