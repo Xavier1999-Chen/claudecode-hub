@@ -22,12 +22,34 @@ function modelLabel(key) {
 function fmtK(n) { if (!n) return '0'; return (n / 1000).toFixed(1) }
 function fmtUsd(n) { return n < 0.01 ? n.toFixed(4) : n.toFixed(2) }
 
+// Return record's "primary value" based on viewMode
+function valueOf(r, mode) {
+  return mode === 'tokens' ? (r.in ?? 0) + (r.out ?? 0) : (r.usd ?? 0)
+}
+
+// Format a numeric value for display based on viewMode
+function fmtValue(v, mode) {
+  if (mode === 'tokens') {
+    if (v >= 1e6) return (v / 1e6).toFixed(1) + 'M'
+    if (v >= 1000) return (v / 1000).toFixed(1) + 'k'
+    return String(Math.round(v))
+  }
+  return '$' + fmtUsd(v)
+}
+
+function fmtTokShort(n) {
+  if (!n) return '—'
+  if (n >= 1e6) return (n / 1e6).toFixed(1) + 'M'
+  if (n >= 1000) return (n / 1000).toFixed(1) + 'k'
+  return String(n)
+}
+
 // Doughnut center label custom component
-function DonutCenter({ cx, cy, total, label }) {
+function DonutCenter({ cx, cy, total, label, mode }) {
   return (
     <>
-      <text x={cx} y={cy - 8} textAnchor="middle" fill="#1c1917" fontSize={18} fontWeight={700}>
-        ${fmtUsd(total)}
+      <text x={cx} y={cy - 8} textAnchor="middle" fill="#1c1917" fontSize={mode === 'tokens' ? 14 : 18} fontWeight={700}>
+        {fmtValue(total, mode)}
       </text>
       <text x={cx} y={cy + 12} textAnchor="middle" fill="#78716c" fontSize={12}>
         {label}
@@ -39,6 +61,7 @@ function DonutCenter({ cx, cy, total, label }) {
 export default function UsageTab({ accounts, terminals }) {
   const [range, setRange] = useState('7d')
   const [group, setGroup] = useState('account')
+  const [viewMode, setViewMode] = useState('usd')
   const [records, setRecords] = useState([])
   const [prevRecords, setPrevRecords] = useState([])
   const [loading, setLoading] = useState(false)
@@ -61,7 +84,8 @@ export default function UsageTab({ accounts, terminals }) {
   const totalUsd = useMemo(() => records.reduce((s, r) => s + (r.usd ?? 0), 0), [records])
   const totalTokens = useMemo(() => records.reduce((s, r) => s + (r.in ?? 0) + (r.out ?? 0), 0), [records])
   const totalReqs = records.length
-  const avgDaily = totalUsd / days
+  const avgDailyUsd = totalUsd / days
+  const avgDailyTok = totalTokens / days
 
   const prevUsd = useMemo(() => prevRecords.reduce((s, r) => s + (r.usd ?? 0), 0), [prevRecords])
   const prevTokens = useMemo(() => prevRecords.reduce((s, r) => s + (r.in ?? 0) + (r.out ?? 0), 0), [prevRecords])
@@ -89,7 +113,7 @@ export default function UsageTab({ accounts, terminals }) {
       const day = new Date(r.ts).toLocaleDateString('zh-CN', { month: 'numeric', day: 'numeric' })
       const k = groupKey(r)
       if (!dayMap[day]) dayMap[day] = {}
-      dayMap[day][k] = (dayMap[day][k] ?? 0) + (r.usd ?? 0)
+      dayMap[day][k] = (dayMap[day][k] ?? 0) + valueOf(r, viewMode)
       keysSet.add(k)
     }
     const todayLabel = new Date().toLocaleDateString('zh-CN', { month: 'numeric', day: 'numeric' })
@@ -97,17 +121,17 @@ export default function UsageTab({ accounts, terminals }) {
       rows: Object.keys(dayMap).sort().map(d => ({ day: d === todayLabel ? '今日' : d, ...dayMap[d] })),
       keys: [...keysSet],
     }
-  }, [records, group, accounts, terminals])
+  }, [records, group, accounts, terminals, viewMode])
 
   // ── Donut data ────────────────────────────────────────────────────────────────
   const donutData = useMemo(() => {
     const map = {}
     for (const r of records) {
       const k = modelKey(r.mdl)
-      map[k] = (map[k] ?? 0) + (r.usd ?? 0)
+      map[k] = (map[k] ?? 0) + valueOf(r, viewMode)
     }
     return Object.entries(map).map(([k, v]) => ({ name: modelLabel(k), value: v, color: MODEL_COLORS[k] ?? '#a8a29e' }))
-  }, [records])
+  }, [records, viewMode])
   const donutTotal = donutData.reduce((s, d) => s + d.value, 0) || 1
 
   // ── Breakdown items ───────────────────────────────────────────────────────────
@@ -132,12 +156,12 @@ export default function UsageTab({ accounts, terminals }) {
     const map = {}
     for (const r of recs) {
       const m = r.mdl ?? 'unknown'
-      map[m] = (map[m] ?? 0) + (r.usd ?? 0)
+      map[m] = (map[m] ?? 0) + valueOf(r, viewMode)
     }
     return Object.entries(map).map(([name, value]) => ({ name, value }))
-  }, [records, selectedBreakdown, group])
+  }, [records, selectedBreakdown, group, viewMode])
 
-  // ── Detail rows ───────────────────────────────────────────────────────────────
+  // ── Detail rows (USD mode) ─────────────────────────────────────────────────────
   const detailRows = useMemo(() => {
     const grouped = {}
     for (const r of records) {
@@ -159,6 +183,34 @@ export default function UsageTab({ accounts, terminals }) {
     })).sort((a, b) => parseFloat(b.usd) - parseFloat(a.usd))
   }, [records, group, accounts, terminals])
 
+  // ── Token detail rows (tokens mode) ──────────────────────────────────────────
+  const tokenDetailRows = useMemo(() => {
+    const grouped = {}
+    for (const r of records) {
+      const k = groupKey(r)
+      if (!grouped[k]) grouped[k] = { requests: 0, sonnet: { in: 0, out: 0 }, haiku: { in: 0, out: 0 }, opus: { in: 0, out: 0 }, other: { in: 0, out: 0 } }
+      grouped[k].requests++
+      const mk = modelKey(r.mdl)
+      const bucket = grouped[k][mk] ?? grouped[k].other
+      bucket.in += r.in ?? 0
+      bucket.out += r.out ?? 0
+    }
+    const totalTok = Object.values(grouped).reduce((s, v) =>
+      s + v.sonnet.in + v.sonnet.out + v.haiku.in + v.haiku.out + v.opus.in + v.opus.out + v.other.in + v.other.out, 0) || 1
+    return Object.entries(grouped).map(([id, v]) => {
+      const total = v.sonnet.in + v.sonnet.out + v.haiku.in + v.haiku.out + v.opus.in + v.opus.out + v.other.in + v.other.out
+      return {
+        id, label: labelFor(id),
+        requests: v.requests,
+        sonnet: v.sonnet,
+        haiku: v.haiku,
+        opus: v.opus,
+        total,
+        pct: (total / totalTok * 100).toFixed(1),
+      }
+    }).sort((a, b) => b.total - a.total)
+  }, [records, group, accounts, terminals])
+
   function Trend({ value, label }) {
     if (value === null) return null
     const cls = value >= 0 ? 'trend-up' : 'trend-down'
@@ -166,6 +218,16 @@ export default function UsageTab({ accounts, terminals }) {
   }
 
   const selectedItem = breakdownItems.find(i => i.id === selectedBreakdown)
+  const isTokens = viewMode === 'tokens'
+
+  const dailyYFmt = v => isTokens
+    ? (v >= 1e6 ? (v/1e6).toFixed(1)+'M' : (v/1000).toFixed(0)+'k')
+    : '$' + v.toFixed(2)
+  const dailyTooltipFmt = (v, name) => [fmtValue(v, viewMode), name]
+  const breakdownTooltipFmt = v => fmtValue(v, viewMode)
+  const breakdownXFmt = v => isTokens
+    ? (v >= 1e6 ? (v/1e6).toFixed(1)+'M' : (v/1000).toFixed(0)+'k')
+    : '$' + v.toFixed(2)
 
   return (
     <div className="main">
@@ -194,6 +256,10 @@ export default function UsageTab({ accounts, terminals }) {
             <button key={v} className={`range-btn ${range === v ? 'active' : ''}`} onClick={() => setRange(v)}>{l}</button>
           ))}
         </div>
+        <div className="view-group">
+          <button className={`group-btn ${!isTokens ? 'active' : ''}`} onClick={() => setViewMode('usd')}>美金</button>
+          <button className={`group-btn ${isTokens ? 'active' : ''}`} onClick={() => setViewMode('tokens')}>Token</button>
+        </div>
         <div className="group-group">
           <button className={`group-btn ${group === 'account' ? 'active' : ''}`} onClick={() => setGroup('account')}>按账号</button>
           <button className={`group-btn ${group === 'terminal' ? 'active' : ''}`} onClick={() => setGroup('terminal')}>按终端</button>
@@ -203,26 +269,52 @@ export default function UsageTab({ accounts, terminals }) {
 
       {/* Stat Cards */}
       <div className="stat-cards">
-        <div className="stat-card">
-          <div className="stat-label">总费用（{rangeLabel}）</div>
-          <div className="stat-value">${fmtUsd(totalUsd)}</div>
-          <Trend value={trendUsd} label={trendLabel} />
-        </div>
-        <div className="stat-card">
-          <div className="stat-label">总 Token</div>
-          <div className="stat-value">{totalTokens >= 1e6 ? (totalTokens/1e6).toFixed(1)+'M' : fmtK(totalTokens)+'k'}</div>
-          <Trend value={trendTok} label={trendLabel} />
-        </div>
-        <div className="stat-card">
-          <div className="stat-label">请求次数</div>
-          <div className="stat-value">{totalReqs}</div>
-          <Trend value={trendReqs} label={trendLabel} />
-        </div>
-        <div className="stat-card">
-          <div className="stat-label">日均费用</div>
-          <div className="stat-value">${fmtUsd(avgDaily)}</div>
-          {yesterdayUsd > 0 && <div className="stat-trend trend-neutral">昨日 ${fmtUsd(yesterdayUsd)}</div>}
-        </div>
+        {isTokens ? (
+          <>
+            <div className="stat-card">
+              <div className="stat-label">总 Token（{rangeLabel}）</div>
+              <div className="stat-value">{fmtValue(totalTokens, 'tokens')}</div>
+              <Trend value={trendTok} label={trendLabel} />
+            </div>
+            <div className="stat-card">
+              <div className="stat-label">日均 Token</div>
+              <div className="stat-value">{fmtValue(avgDailyTok, 'tokens')}</div>
+            </div>
+            <div className="stat-card">
+              <div className="stat-label">请求次数</div>
+              <div className="stat-value">{totalReqs}</div>
+              <Trend value={trendReqs} label={trendLabel} />
+            </div>
+            <div className="stat-card">
+              <div className="stat-label">总费用</div>
+              <div className="stat-value" style={{ fontSize: 22 }}>${fmtUsd(totalUsd)}</div>
+              <Trend value={trendUsd} label={trendLabel} />
+            </div>
+          </>
+        ) : (
+          <>
+            <div className="stat-card">
+              <div className="stat-label">总费用（{rangeLabel}）</div>
+              <div className="stat-value">${fmtUsd(totalUsd)}</div>
+              <Trend value={trendUsd} label={trendLabel} />
+            </div>
+            <div className="stat-card">
+              <div className="stat-label">总 Token</div>
+              <div className="stat-value">{totalTokens >= 1e6 ? (totalTokens/1e6).toFixed(1)+'M' : fmtK(totalTokens)+'k'}</div>
+              <Trend value={trendTok} label={trendLabel} />
+            </div>
+            <div className="stat-card">
+              <div className="stat-label">请求次数</div>
+              <div className="stat-value">{totalReqs}</div>
+              <Trend value={trendReqs} label={trendLabel} />
+            </div>
+            <div className="stat-card">
+              <div className="stat-label">日均费用</div>
+              <div className="stat-value">${fmtUsd(avgDailyUsd)}</div>
+              {yesterdayUsd > 0 && <div className="stat-trend trend-neutral">昨日 ${fmtUsd(yesterdayUsd)}</div>}
+            </div>
+          </>
+        )}
       </div>
 
       {/* Charts row */}
@@ -230,14 +322,14 @@ export default function UsageTab({ accounts, terminals }) {
         {/* Daily bar chart */}
         <div className="chart-card">
           <div className="chart-title-row">
-            <span className="chart-title">每日费用</span>
+            <span className="chart-title">每日{isTokens ? ' Token' : '费用'}</span>
             <span className="chart-subtitle">近 {rangeLabel}</span>
           </div>
           <ResponsiveContainer width="100%" height={220}>
             <BarChart data={dailyData.rows} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
               <XAxis dataKey="day" tick={{ fontSize: 12 }} axisLine={false} tickLine={false} />
-              <YAxis tickFormatter={v => '$' + v.toFixed(2)} tick={{ fontSize: 11 }} axisLine={false} tickLine={false} width={56} />
-              <Tooltip formatter={(v, name) => ['$' + v.toFixed(4), name]} />
+              <YAxis tickFormatter={dailyYFmt} tick={{ fontSize: 11 }} axisLine={false} tickLine={false} width={56} />
+              <Tooltip formatter={dailyTooltipFmt} />
               <Legend wrapperStyle={{ fontSize: 12 }} />
               {dailyData.keys.map((k, i) => (
                 <Bar key={k} dataKey={k} name={labelFor(k)} stackId="a" fill={PALETTE[i % PALETTE.length]} radius={i === dailyData.keys.length - 1 ? [3, 3, 0, 0] : [0, 0, 0, 0]} maxBarSize={52} />
@@ -261,7 +353,7 @@ export default function UsageTab({ accounts, terminals }) {
               >
                 {donutData.map((d, i) => <Cell key={i} fill={d.color} />)}
               </Pie>
-              <DonutCenter cx={100} cy={100} total={donutTotal} label={rangeLabel} />
+              <DonutCenter cx={100} cy={100} total={donutTotal} label={rangeLabel} mode={viewMode} />
             </PieChart>
           </div>
           <div className="donut-legend">
@@ -301,13 +393,13 @@ export default function UsageTab({ accounts, terminals }) {
           </div>
           <div className="breakdown-main">
             <div className="breakdown-chart-title">
-              {selectedItem ? `${selectedItem.label} — 模型费用分布（近 ${rangeLabel}）` : '—'}
+              {selectedItem ? `${selectedItem.label} — 模型${isTokens ? ' Token' : '费用'}分布（近 ${rangeLabel}）` : '—'}
             </div>
             <ResponsiveContainer width="100%" height={220}>
               <BarChart data={breakdownChartData} layout="vertical" margin={{ top: 4, right: 16, left: 8, bottom: 0 }}>
-                <XAxis type="number" tickFormatter={v => '$' + v.toFixed(2)} tick={{ fontSize: 11 }} axisLine={false} tickLine={false} />
+                <XAxis type="number" tickFormatter={breakdownXFmt} tick={{ fontSize: 11 }} axisLine={false} tickLine={false} />
                 <YAxis type="category" dataKey="name" tick={{ fontSize: 12 }} axisLine={false} tickLine={false} width={140} />
-                <Tooltip formatter={v => '$' + v.toFixed(4)} />
+                <Tooltip formatter={breakdownTooltipFmt} />
                 <Bar dataKey="value" fill="#E87040" radius={[0, 4, 4, 0]} maxBarSize={28} />
               </BarChart>
             </ResponsiveContainer>
@@ -317,30 +409,71 @@ export default function UsageTab({ accounts, terminals }) {
 
       {/* Detail Table */}
       <div className="detail-table">
-        <table>
-          <thead>
-            <tr>
-              <th>{group === 'account' ? '账号' : '终端'}</th>
-              <th>请求数</th>
-              <th>Input Tokens</th>
-              <th>Output Tokens</th>
-              <th>费用</th>
-              <th>占比</th>
-            </tr>
-          </thead>
-          <tbody>
-            {detailRows.map(row => (
-              <tr key={row.id}>
-                <td>{row.label}</td>
-                <td>{row.requests}</td>
-                <td>{fmtK(row.inTokens)}k</td>
-                <td>{fmtK(row.outTokens)}k</td>
-                <td>${row.usd}</td>
-                <td>{row.pct}%</td>
+        {isTokens ? (
+          <table>
+            <thead>
+              <tr>
+                <th>{group === 'account' ? '账号' : '终端'}</th>
+                <th>请求数</th>
+                <th>Sonnet</th>
+                <th>Haiku</th>
+                <th>Opus</th>
+                <th>合计 Token</th>
+                <th>占比</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {tokenDetailRows.map(row => (
+                <tr key={row.id}>
+                  <td>{row.label}</td>
+                  <td>{row.requests}</td>
+                  <td className="token-io">
+                    {(row.sonnet.in || row.sonnet.out)
+                      ? <>{fmtTokShort(row.sonnet.in)} <span className="io-sep">/</span> {fmtTokShort(row.sonnet.out)}</>
+                      : <span className="io-none">—</span>}
+                  </td>
+                  <td className="token-io">
+                    {(row.haiku.in || row.haiku.out)
+                      ? <>{fmtTokShort(row.haiku.in)} <span className="io-sep">/</span> {fmtTokShort(row.haiku.out)}</>
+                      : <span className="io-none">—</span>}
+                  </td>
+                  <td className="token-io">
+                    {(row.opus.in || row.opus.out)
+                      ? <>{fmtTokShort(row.opus.in)} <span className="io-sep">/</span> {fmtTokShort(row.opus.out)}</>
+                      : <span className="io-none">—</span>}
+                  </td>
+                  <td><strong>{fmtTokShort(row.total)}</strong></td>
+                  <td>{row.pct}%</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        ) : (
+          <table>
+            <thead>
+              <tr>
+                <th>{group === 'account' ? '账号' : '终端'}</th>
+                <th>请求数</th>
+                <th>Input Tokens</th>
+                <th>Output Tokens</th>
+                <th>费用</th>
+                <th>占比</th>
+              </tr>
+            </thead>
+            <tbody>
+              {detailRows.map(row => (
+                <tr key={row.id}>
+                  <td>{row.label}</td>
+                  <td>{row.requests}</td>
+                  <td>{fmtK(row.inTokens)}k</td>
+                  <td>{fmtK(row.outTokens)}k</td>
+                  <td>${row.usd}</td>
+                  <td>{row.pct}%</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
       </div>
     </div>
   )

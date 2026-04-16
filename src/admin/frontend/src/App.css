@@ -126,6 +126,7 @@ tr:hover td { background: #FDFAF8; }
 .range-btn { padding: 7px 16px; font-size: 14px; cursor: pointer; background: white; border: 1.5px solid #e7e5e4; border-radius: 7px; color: #78716c; transition: border-color 0.15s, color 0.15s; }
 .range-btn:hover { border-color: #FDDCCC; color: #E87040; }
 .range-btn.active { border-color: #E87040; color: #E87040; font-weight: 600; }
+.view-group { display: flex; border: 1.5px solid #e7e5e4; border-radius: 8px; overflow: hidden; background: white; }
 .group-group { display: flex; border: 1.5px solid #e7e5e4; border-radius: 8px; overflow: hidden; background: white; }
 .group-btn { padding: 7px 16px; font-size: 14px; cursor: pointer; background: white; border: none; color: #78716c; transition: background 0.15s, color 0.15s; }
 .group-btn:hover { background: #f4f1eb; }
@@ -168,6 +169,9 @@ tr:hover td { background: #FDFAF8; }
 .breakdown-main { flex: 1; min-width: 0; }
 .breakdown-chart-title { font-size: 14px; font-weight: 600; color: #1c1917; margin-bottom: 12px; }
 .detail-table { background: white; border-radius: 12px; border: 1px solid #e7e5e4; overflow: hidden; margin-bottom: 16px; }
+.token-io { font-size: 13px; color: #44403c; white-space: nowrap; }
+.io-sep { color: #c4b5a0; margin: 0 3px; }
+.io-none { color: #d6d3d1; }
 
 /* ── MODAL ───────────────────────────────────────────────────────────────────── */
 .modal-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,.4); display: flex; align-items: center; justify-content: center; z-index: 100; }
