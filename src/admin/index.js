@@ -52,6 +52,19 @@ app.post('/api/accounts/:id/refresh-token', async (req, res) => {
   }
 });
 
+app.post('/api/accounts/:id/sync-usage', async (req, res) => {
+  const accounts = await configStore.readAccounts();
+  const acc = accounts.find(a => a.id === req.params.id);
+  if (!acc) return res.status(404).json({ error: 'not_found' });
+  try {
+    await syncRateLimit(acc);
+    await configStore.writeAccounts(accounts);
+    res.json(sanitiseAccount(acc));
+  } catch (err) {
+    res.status(502).json({ error: err.message });
+  }
+});
+
 app.patch('/api/accounts/:id', async (req, res) => {
   const accounts = await configStore.readAccounts();
   const acc = accounts.find(a => a.id === req.params.id);
@@ -345,6 +358,21 @@ async function reassignTerminals(removedAccountId, availableAccounts, modes) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────
+
+// Auto-sync rate limits for all accounts every 60s
+setInterval(async () => {
+  try {
+    const accounts = await configStore.readAccounts();
+    if (!accounts.length) return;
+    for (const acc of accounts) {
+      await syncRateLimit(acc);
+    }
+    await configStore.writeAccounts(accounts);
+    console.log(`[admin] auto-synced usage for ${accounts.length} account(s)`);
+  } catch (err) {
+    console.error('[admin] auto-sync error:', err.message);
+  }
+}, 60000);
 
 app.listen(PORT, '127.0.0.1', () => {
   console.log(`[admin] listening on http://127.0.0.1:${PORT}`);

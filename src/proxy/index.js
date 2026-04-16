@@ -29,6 +29,10 @@ async function loadConfig() {
       terminals = await configStore.readTerminals().catch(() => terminals);
     });
   } catch { /* terminals.json not yet created */ }
+  // Polling fallback for WSL2 where fs.watch is unreliable
+  setInterval(async () => {
+    terminals = await configStore.readTerminals().catch(() => terminals);
+  }, 5000).unref();
 }
 
 // ── Proxy endpoint ───────────────────────────────────────────────────────

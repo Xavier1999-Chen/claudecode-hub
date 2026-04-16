@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { updateTerminal, forceOnline, forceOffline, deleteAccount, renameAccount, refreshAccountToken } from '../api.js'
+import { updateTerminal, forceOnline, forceOffline, deleteAccount, renameAccount, refreshAccountToken, syncAccountUsage } from '../api.js'
 
 function fmtK(n) { if (!n) return '0'; return (n / 1000).toFixed(1) }
 function pct(used, limit) { if (!limit) return 0; return Math.min(100, Math.round(used / limit * 100)) }
@@ -63,6 +63,11 @@ function AccountActions({ acc, onAction, onClose }) {
         </button>
       )}
 
+      {/* Refresh token */}
+      <button className="action-btn" disabled={busy === 'refresh'} onClick={() => run('refresh')}>
+        {busy === 'refresh' ? '…' : '🔑 刷新 Token'}
+      </button>
+
       {/* Delete */}
       <button className="action-btn action-btn-danger" disabled={busy === 'delete'} onClick={() => run('delete')}>
         {busy === 'delete' ? '…' : '🗑 删除账号'}
@@ -77,7 +82,8 @@ export default function AccountsTab({ accounts, terminals, onRefresh, onNewTermi
   const [editingName, setEditingName] = useState(false)
   const [editNameValue, setEditNameValue] = useState('')
   const [expandedCard, setExpandedCard] = useState(null) // account id with open actions
-  const [refreshingId, setRefreshingId] = useState(null) // account id being refreshed
+  const [refreshingId, setRefreshingId] = useState(null) // account id being token-refreshed
+  const [syncingId, setSyncingId] = useState(null)       // account id being usage-synced
 
   function selectTerminal(t) {
     if (selectedTerminal?.id === t.id) {
@@ -293,16 +299,19 @@ export default function AccountsTab({ accounts, terminals, onRefresh, onNewTermi
                   {acc.plan?.toUpperCase() ?? 'PRO'}
                 </span>
                 <span className={`status-dot ${statusDot(acc)}`} />
-                {/* Refresh token button */}
+                {/* Sync usage button */}
                 <button
-                  className={`card-refresh-btn${refreshingId === acc.id ? ' spinning' : ''}`}
-                  title="刷新 Token"
+                  className={`card-refresh-btn${syncingId === acc.id ? ' spinning' : ''}`}
+                  title="同步用量"
                   onClick={async e => {
                     e.stopPropagation()
-                    setRefreshingId(acc.id)
-                    try { await handleCardAction(acc, 'refresh') } finally { setRefreshingId(null) }
+                    setSyncingId(acc.id)
+                    try {
+                      const updated = await syncAccountUsage(acc.id)
+                      await onRefresh()
+                    } finally { setSyncingId(null) }
                   }}
-                  disabled={refreshingId === acc.id}
+                  disabled={syncingId === acc.id}
                 >
                   ↻
                 </button>

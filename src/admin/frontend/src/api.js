@@ -77,6 +77,21 @@ export async function refreshAccountToken(id) {
   return fetch(`/api/accounts/${id}/refresh-token`, { method: 'POST' }).then(r => r.json())
 }
 
+export async function syncAccountUsage(id) {
+  if (USE_MOCK) {
+    await delay(400)
+    const acc = _accounts.find(a => a.id === id)
+    if (acc) {
+      acc.rateLimit = {
+        window5h: { utilization: Math.random() * 0.6, resetAt: Date.now() + 18000000, status: 'allowed' },
+        weekly: { utilization: Math.random() * 0.4, resetAt: Date.now() + 6 * 86400000, status: 'allowed' },
+      }
+    }
+    return JSON.parse(JSON.stringify(acc))
+  }
+  return fetch(`/api/accounts/${id}/sync-usage`, { method: 'POST' }).then(r => r.json())
+}
+
 // ── Terminals ─────────────────────────────────────────────────────────────────
 export async function getTerminals() {
   if (USE_MOCK) { await delay(); return JSON.parse(JSON.stringify(_terminals)) }

@@ -54,6 +54,37 @@ export async function forwardRequest(req, res, account, terminalId, pool) {
 
   console.log(`[fwd] ${upRes.status} ${upRes.headers.get('content-type')} beta=${upHeaders['anthropic-beta']}`);
 
+  // Handle token expiry: reload from disk first (admin may have refreshed),
+  // then fall back to calling the refresh endpoint. Retry once.
+  if (upRes.status === 401) {
+    console.log(`[fwd] 401 for account ${account.id}, reloading credentials from disk`);
+    try {
+      await pool.reloadAccount(account.id);
+      const reloaded = pool.getAccount(account.id);
+      if (reloaded && reloaded.credentials.accessToken !== account.credentials.accessToken) {
+        // Disk had a newer token (admin refreshed) — use it directly
+        account = reloaded;
+      } else {
+        // Disk token is same as memory — do a fresh OAuth refresh
+        account.credentials.expiresAt = 0;
+        account = await pool.ensureFreshToken(account);
+      }
+      upHeaders['authorization'] = `Bearer ${account.credentials.accessToken}`;
+      upRes = await fetch(url, {
+        method: req.method,
+        headers: upHeaders,
+        body: req.method !== 'GET' && req.method !== 'HEAD' ? req.rawBody : undefined,
+        compress: false,
+        ...(proxyAgent && { agent: proxyAgent }),
+      });
+      console.log(`[fwd] retry after credential reload: ${upRes.status}`);
+    } catch (err) {
+      console.error(`[fwd] credential reload failed: ${err.message}`);
+      res.status(401).json({ error: 'authentication_error', message: err.message });
+      return;
+    }
+  }
+
   // Handle rate limiting
   if (upRes.status === 429) {
     const retryAfter = parseInt(upRes.headers.get('retry-after') ?? '0', 10);

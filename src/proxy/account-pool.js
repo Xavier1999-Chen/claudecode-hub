@@ -39,6 +39,20 @@ export class AccountPool {
     return this.#accounts.find(a => a.id === id);
   }
 
+  /**
+   * Re-read accounts from disk and merge credentials for a single account.
+   * Used to pick up tokens refreshed by the admin process.
+   */
+  async reloadAccount(id) {
+    try {
+      const fresh = await this.#configStore.readAccounts();
+      const freshAcc = fresh.find(a => a.id === id);
+      if (!freshAcc) return;
+      const mem = this.#accounts.find(a => a.id === id);
+      if (mem) Object.assign(mem.credentials, freshAcc.credentials);
+    } catch { /* ignore */ }
+  }
+
   getCircuitBreaker(accountId) {
     return this.#ensureCB(accountId);
   }
@@ -152,5 +166,26 @@ export class AccountPool {
     } catch {
       // fs.watch not available in test environments
     }
+    // Polling fallback for WSL2 where fs.watch is unreliable (inotify limitations).
+    // Merges disk credentials into in-memory accounts to avoid overwriting rate-limit state.
+    setInterval(async () => {
+      try {
+        const fresh = await this.#configStore.readAccounts();
+        for (const freshAcc of fresh) {
+          const mem = this.#accounts.find(a => a.id === freshAcc.id);
+          if (mem) {
+            // Only update credentials if they changed (admin refreshed token)
+            if (freshAcc.credentials?.accessToken !== mem.credentials?.accessToken) {
+              Object.assign(mem.credentials, freshAcc.credentials);
+            }
+          }
+        }
+        // Add/remove accounts that were added/deleted via admin
+        const freshIds = new Set(fresh.map(a => a.id));
+        const memIds = new Set(this.#accounts.map(a => a.id));
+        for (const a of fresh) if (!memIds.has(a.id)) this.#accounts.push(a);
+        this.#accounts = this.#accounts.filter(a => freshIds.has(a.id));
+      } catch { /* ignore */ }
+    }, 15000).unref(); // every 15s, unref so it doesn't block process exit
   }
 }
