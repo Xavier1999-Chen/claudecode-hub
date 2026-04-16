@@ -70,13 +70,19 @@ app.use(async (req, res) => {
   console.log(`[proxy] ${req.method} ${req.url} terminal=${terminal.name} account=${account.email ?? account.id} token=${account.credentials?.accessToken?.slice(0, 20)}…`);
 
   // 4. Update terminal lastUsedAt (fire-and-forget)
-  terminal.lastUsedAt = Date.now();
+  // Re-find from current terminals array: 5s polling may have replaced the reference
+  const liveT = terminals.find(t => t.id === terminal.id) ?? terminal;
+  liveT.lastUsedAt = Date.now();
   configStore.writeTerminals(terminals).catch(() => {});
 
   // 5. Forward — onFallback updates terminal accountId when proxy switches accounts
   function onFallback(newAccount) {
-    terminal.accountId = newAccount.id;
-    configStore.writeTerminals(terminals).catch(() => {});
+    // Must re-find: 5s polling may have replaced the terminals array since request started
+    const t = terminals.find(t => t.id === terminal.id);
+    if (t) {
+      t.accountId = newAccount.id;
+      configStore.writeTerminals(terminals).catch(() => {});
+    }
     console.log(`[proxy] terminal ${terminal.name} reassigned to ${newAccount.email ?? newAccount.id}`);
   }
 
