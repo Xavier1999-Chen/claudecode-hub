@@ -35,6 +35,16 @@ async function loadConfig() {
   }, 5000).unref();
 }
 
+// ── Internal API (called by admin, not by Claude Code clients) ───────────
+app.post('/_internal/sync-terminals', async (_req, res) => {
+  try {
+    await configStore.writeTerminals(terminals);
+    res.json({ ok: true, count: terminals.length });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ── Proxy endpoint ───────────────────────────────────────────────────────
 
 app.use(async (req, res) => {
@@ -92,7 +102,9 @@ app.use(async (req, res) => {
   });
 });
 
-loadConfig().then(() => {
+loadConfig().then(async () => {
+  // Write in-memory state to disk on startup so admin always has current data
+  await configStore.writeTerminals(terminals).catch(() => {});
   app.listen(PORT, () => console.log(`[proxy] listening on :${PORT}`));
 }).catch(err => {
   console.error('[proxy] failed to start:', err);
