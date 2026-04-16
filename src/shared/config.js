@@ -33,5 +33,5 @@ export function createConfigStore(configDir) {
 }
 
 // Default store using ./config/ relative to project root
-const projectRoot = new URL('../../..', import.meta.url).pathname;
+const projectRoot = new URL('../..', import.meta.url).pathname;
 export const configStore = createConfigStore(join(projectRoot, 'config'));

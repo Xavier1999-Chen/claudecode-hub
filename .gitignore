@@ -1,5 +1,6 @@
 node_modules/
 config/accounts.json
+config/terminals.json
 logs/
 
 # Tool/session artifacts
