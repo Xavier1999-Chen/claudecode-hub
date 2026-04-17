@@ -2,7 +2,8 @@ import { useState, useEffect, useMemo } from 'react'
 import { getUsage } from '../api.js'
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, Legend, ResponsiveContainer, Cell,
-  PieChart, Pie,
+  PieChart, Pie, LabelList,
+  useXAxisScale, useYAxisScale,
 } from 'recharts'
 
 const PALETTE = ['#E87040', '#93c5fd', '#6ee7b7', '#c4b5fd', '#fde68a', '#f9a8d4', '#5eead4']
@@ -39,6 +40,42 @@ function axisFmt(v, isTokens) {
     : '$' + v.toFixed(2)
 }
 
+function DayTick({ x, y, payload }) {
+  const isToday = payload.value === '今日'
+  return (
+    <text
+      x={x} y={y + 12}
+      textAnchor="middle"
+      fontSize={12}
+      fill={isToday ? '#E87040' : '#78716c'}
+      fontWeight={isToday ? 600 : 400}
+    >
+      {payload.value}
+    </text>
+  )
+}
+
+function StackLabels({ rows, viewMode }) {
+  const xScale = useXAxisScale()
+  const yScale = useYAxisScale()
+  if (!xScale || !yScale) return null
+  return (
+    <g>
+      {rows.map((row) => {
+        if (!row._total || row._total < 1) return null
+        const cx = xScale(row.day, { position: 'middle' })
+        const cy = yScale(row._total)
+        if (cx == null || cy == null) return null
+        return (
+          <text key={row.day} x={cx} y={cy - 4} textAnchor="middle" fill="#78716c" fontSize={11} fontWeight={600}>
+            {fmtValue(row._total, viewMode)}
+          </text>
+        )
+      })}
+    </g>
+  )
+}
+
 function DonutCenter({ cx, cy, total, label, mode }) {
   return (
     <>
@@ -71,7 +108,7 @@ function TokenIOCell({ data }) {
 export default function UsageTab({ accounts, terminals }) {
   const [range, setRange] = useState('7d')
   const [group, setGroup] = useState('account')
-  const [viewMode, setViewMode] = useState('usd')
+  const [viewMode, setViewMode] = useState('tokens')
   const [records, setRecords] = useState([])
   const [prevRecords, setPrevRecords] = useState([])
   const [loading, setLoading] = useState(false)
@@ -124,11 +161,18 @@ export default function UsageTab({ accounts, terminals }) {
       dayMap[day][k] = (dayMap[day][k] ?? 0) + valueOf(r, viewMode)
       keysSet.add(k)
     }
+    const allKeys = [...keysSet]
     const todayLabel = new Date().toLocaleDateString('zh-CN', { month: 'numeric', day: 'numeric' })
-    return {
-      rows: Object.keys(dayMap).sort().map(d => ({ day: d === todayLabel ? '今日' : d, ...dayMap[d] })),
-      keys: [...keysSet],
-    }
+    const rows = Object.keys(dayMap).sort().map(d => {
+      const entry = dayMap[d]
+      const _total = Object.values(entry).reduce((s, v) => s + v, 0)
+      // Use Number.EPSILON (not 0) so LabelList fires even when a key has no data for this day
+      const filled = {}
+      for (const k of allKeys) filled[k] = entry[k] ?? Number.EPSILON
+      return { day: d === todayLabel ? '今日' : d, ...filled, _total }
+    })
+    const maxTotal = rows.reduce((m, r) => Math.max(m, r._total), 0)
+    return { rows, keys: allKeys, maxTotal }
   }, [records, group, accounts, terminals, viewMode])
 
   const donutData = useMemo(() => {
@@ -152,7 +196,12 @@ export default function UsageTab({ accounts, terminals }) {
   }, [records, group, accounts, terminals])
 
   useEffect(() => {
-    setSelectedBreakdown(breakdownItems[0]?.id ?? null)
+    setSelectedBreakdown(prev => {
+      if (prev != null && breakdownItems.some(item => item.id === prev)) {
+        return prev
+      }
+      return breakdownItems[0]?.id ?? null
+    })
   }, [breakdownItems])
 
   const breakdownChartData = useMemo(() => {
@@ -163,7 +212,13 @@ export default function UsageTab({ accounts, terminals }) {
       const m = r.mdl ?? 'unknown'
       map[m] = (map[m] ?? 0) + valueOf(r, viewMode)
     }
-    return Object.entries(map).map(([name, value]) => ({ name, value }))
+    const MODEL_ORDER = ['haiku', 'sonnet', 'opus']
+    return Object.entries(map)
+      .map(([mdl, value]) => {
+        const key = modelKey(mdl)
+        return { name: modelLabel(key), value, color: MODEL_COLORS[key] ?? '#a8a29e', _order: MODEL_ORDER.indexOf(key) }
+      })
+      .sort((a, b) => a._order - b._order)
   }, [records, selectedBreakdown, group, viewMode])
 
   // Single grouping pass shared by both detail table views
@@ -313,14 +368,15 @@ export default function UsageTab({ accounts, terminals }) {
             <span className="chart-subtitle">近 {rangeLabel}</span>
           </div>
           <ResponsiveContainer width="100%" height={220}>
-            <BarChart data={dailyData.rows} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
-              <XAxis dataKey="day" tick={{ fontSize: 12 }} axisLine={false} tickLine={false} />
-              <YAxis tickFormatter={v => axisFmt(v, isTokens)} tick={{ fontSize: 11 }} axisLine={false} tickLine={false} width={56} />
+            <BarChart data={dailyData.rows} margin={{ top: 20, right: 8, left: 0, bottom: 0 }}>
+              <XAxis dataKey="day" tick={<DayTick />} axisLine={false} tickLine={false} />
+              <YAxis tickFormatter={v => axisFmt(v, isTokens)} tick={{ fontSize: 11 }} axisLine={false} tickLine={false} width={56} domain={[0, (dailyData.maxTotal || 1) * 1.2]} />
               <Tooltip formatter={(v, name) => [fmtValue(v, viewMode), name]} />
               <Legend wrapperStyle={{ fontSize: 12 }} />
               {dailyData.keys.map((k, i) => (
                 <Bar key={k} dataKey={k} name={labelFor(k)} stackId="a" fill={PALETTE[i % PALETTE.length]} radius={i === dailyData.keys.length - 1 ? [3, 3, 0, 0] : [0, 0, 0, 0]} maxBarSize={52} />
               ))}
+              <StackLabels rows={dailyData.rows} viewMode={viewMode} />
             </BarChart>
           </ResponsiveContainer>
         </div>
@@ -383,11 +439,23 @@ export default function UsageTab({ accounts, terminals }) {
               {selectedItem ? `${selectedItem.label} — 模型${isTokens ? ' Token' : '费用'}分布（近 ${rangeLabel}）` : '—'}
             </div>
             <ResponsiveContainer width="100%" height={220}>
-              <BarChart data={breakdownChartData} layout="vertical" margin={{ top: 4, right: 16, left: 8, bottom: 0 }}>
-                <XAxis type="number" tickFormatter={v => axisFmt(v, isTokens)} tick={{ fontSize: 11 }} axisLine={false} tickLine={false} />
-                <YAxis type="category" dataKey="name" tick={{ fontSize: 12 }} axisLine={false} tickLine={false} width={140} />
+              <BarChart data={breakdownChartData} margin={{ top: 24, right: 16, left: 8, bottom: 4 }}>
+                <XAxis dataKey="name" tick={{ fontSize: 12, fill: '#78716c' }} axisLine={false} tickLine={false} />
+                <YAxis tickFormatter={v => axisFmt(v, isTokens)} tick={{ fontSize: 11 }} axisLine={false} tickLine={false} width={56} />
                 <Tooltip formatter={v => fmtValue(v, viewMode)} />
-                <Bar dataKey="value" fill="#E87040" radius={[0, 4, 4, 0]} maxBarSize={28} />
+                <Bar dataKey="value" radius={[4, 4, 0, 0]} maxBarSize={80}>
+                  {breakdownChartData.map((entry, i) => (
+                    <Cell key={i} fill={entry.color} />
+                  ))}
+                  <LabelList
+                    dataKey="value"
+                    content={({ x, y, width, value }) => (
+                      <text x={x + width / 2} y={y - 5} textAnchor="middle" fill="#78716c" fontSize={12} fontWeight={600}>
+                        {fmtValue(value, viewMode)}
+                      </text>
+                    )}
+                  />
+                </Bar>
               </BarChart>
             </ResponsiveContainer>
           </div>
