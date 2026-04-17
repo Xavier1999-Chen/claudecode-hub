@@ -3,6 +3,7 @@ import { getUsage } from '../api.js'
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, Legend, ResponsiveContainer, Cell,
   PieChart, Pie, LabelList,
+  useXAxisScale, useYAxisScale,
 } from 'recharts'
 
 const PALETTE = ['#E87040', '#93c5fd', '#6ee7b7', '#c4b5fd', '#fde68a', '#f9a8d4', '#5eead4']
@@ -51,6 +52,27 @@ function DayTick({ x, y, payload }) {
     >
       {payload.value}
     </text>
+  )
+}
+
+function StackLabels({ rows, viewMode }) {
+  const xScale = useXAxisScale()
+  const yScale = useYAxisScale()
+  if (!xScale || !yScale) return null
+  return (
+    <g>
+      {rows.map((row) => {
+        if (!row._total || row._total < 1) return null
+        const cx = xScale(row.day, { position: 'middle' })
+        const cy = yScale(row._total)
+        if (cx == null || cy == null) return null
+        return (
+          <text key={row.day} x={cx} y={cy - 4} textAnchor="middle" fill="#78716c" fontSize={11} fontWeight={600}>
+            {fmtValue(row._total, viewMode)}
+          </text>
+        )
+      })}
+    </g>
   )
 }
 
@@ -144,9 +166,9 @@ export default function UsageTab({ accounts, terminals }) {
     const rows = Object.keys(dayMap).sort().map(d => {
       const entry = dayMap[d]
       const _total = Object.values(entry).reduce((s, v) => s + v, 0)
-      // Ensure every key has an explicit value (even 0) so LabelList fires for all bars
+      // Use Number.EPSILON (not 0) so LabelList fires even when a key has no data for this day
       const filled = {}
-      for (const k of allKeys) filled[k] = entry[k] ?? 0
+      for (const k of allKeys) filled[k] = entry[k] ?? Number.EPSILON
       return { day: d === todayLabel ? '今日' : d, ...filled, _total }
     })
     const maxTotal = rows.reduce((m, r) => Math.max(m, r._total), 0)
@@ -352,20 +374,9 @@ export default function UsageTab({ accounts, terminals }) {
               <Tooltip formatter={(v, name) => [fmtValue(v, viewMode), name]} />
               <Legend wrapperStyle={{ fontSize: 12 }} />
               {dailyData.keys.map((k, i) => (
-                <Bar key={k} dataKey={k} name={labelFor(k)} stackId="a" fill={PALETTE[i % PALETTE.length]} radius={i === dailyData.keys.length - 1 ? [3, 3, 0, 0] : [0, 0, 0, 0]} maxBarSize={52}>
-                  {i === dailyData.keys.length - 1 && (
-                    <LabelList
-                      dataKey="_total"
-                      position="top"
-                      content={({ x, y, width, value }) => (
-                        <text x={x + width / 2} y={y - 4} textAnchor="middle" fill="#78716c" fontSize={11} fontWeight={600}>
-                          {fmtValue(value, viewMode)}
-                        </text>
-                      )}
-                    />
-                  )}
-                </Bar>
+                <Bar key={k} dataKey={k} name={labelFor(k)} stackId="a" fill={PALETTE[i % PALETTE.length]} radius={i === dailyData.keys.length - 1 ? [3, 3, 0, 0] : [0, 0, 0, 0]} maxBarSize={52} />
               ))}
+              <StackLabels rows={dailyData.rows} viewMode={viewMode} />
             </BarChart>
           </ResponsiveContainer>
         </div>
