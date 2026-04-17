@@ -3,10 +3,42 @@ import { HttpsProxyAgent } from 'https-proxy-agent';
 import { createUsageTapper } from './usage-tracker.js';
 
 const UPSTREAM = 'https://api.anthropic.com';
+const UPSTREAM_TIMEOUT_MS = 60_000;
+const RETRY_DELAY_MS = 2_000;
 
 const proxyUrl = process.env.HTTPS_PROXY || process.env.https_proxy
                || process.env.HTTP_PROXY  || process.env.http_proxy;
 const proxyAgent = proxyUrl ? new HttpsProxyAgent(proxyUrl) : undefined;
+
+// True for transient TCP-level errors worth retrying once (e.g. Clash briefly offline).
+// HTTP 4xx/5xx are not thrown by fetch() — they're handled via upRes.status below.
+function isRetriableConnectionError(err) {
+  const code = err.code ?? err.cause?.code;
+  return ['ECONNREFUSED', 'ECONNRESET', 'ETIMEDOUT', 'ENETUNREACH'].includes(code);
+}
+
+// fetch with a 60s hard timeout + one automatic retry on transient connection errors.
+async function fetchWithRetry(url, options) {
+  async function attempt() {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), UPSTREAM_TIMEOUT_MS);
+    try {
+      return await fetch(url, { ...options, signal: ctrl.signal });
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+  try {
+    return await attempt();
+  } catch (err) {
+    if (isRetriableConnectionError(err)) {
+      console.warn(`[fwd] connection error (${err.code ?? err.cause?.code}), retrying in ${RETRY_DELAY_MS}ms…`);
+      await new Promise(r => setTimeout(r, RETRY_DELAY_MS));
+      return attempt(); // second failure propagates to caller
+    }
+    throw err;
+  }
+}
 
 // Headers that must not be forwarded between hops
 const HOP_BY_HOP = new Set([
@@ -43,18 +75,24 @@ export async function forwardRequest(req, res, account, terminalId, pool, triedI
 
   const url = UPSTREAM + req.url;
 
+  const fetchOpts = {
+    method: req.method,
+    headers: upHeaders,
+    body: req.method !== 'GET' && req.method !== 'HEAD' ? req.rawBody : undefined,
+    compress: false,
+    ...(proxyAgent && { agent: proxyAgent }),
+  };
+
   let upRes;
   try {
-    upRes = await fetch(url, {
-      method: req.method,
-      headers: upHeaders,
-      body: req.method !== 'GET' && req.method !== 'HEAD' ? req.rawBody : undefined,
-      compress: false,
-      ...(proxyAgent && { agent: proxyAgent }),
-    });
+    upRes = await fetchWithRetry(url, fetchOpts);
   } catch (err) {
-    pool.getCircuitBreaker(account.id).recordFailure();
-    res.status(502).json({ error: 'upstream_error', message: err.message });
+    // Don't blame the account for infrastructure failures — no recordFailure().
+    if (err.name === 'AbortError') {
+      res.status(504).json({ error: 'upstream_timeout', message: 'upstream request timed out after 60s' });
+    } else {
+      res.status(502).json({ error: 'upstream_error', message: err.message });
+    }
     return;
   }
 
@@ -76,13 +114,7 @@ export async function forwardRequest(req, res, account, terminalId, pool, triedI
         account = await pool.ensureFreshToken(account);
       }
       upHeaders['authorization'] = `Bearer ${account.credentials.accessToken}`;
-      upRes = await fetch(url, {
-        method: req.method,
-        headers: upHeaders,
-        body: req.method !== 'GET' && req.method !== 'HEAD' ? req.rawBody : undefined,
-        compress: false,
-        ...(proxyAgent && { agent: proxyAgent }),
-      });
+      upRes = await fetchWithRetry(url, fetchOpts);
       console.log(`[fwd] retry after credential reload: ${upRes.status}`);
     } catch (err) {
       console.error(`[fwd] credential reload failed: ${err.message}`);
