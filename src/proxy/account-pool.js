@@ -10,6 +10,7 @@ export class AccountPool {
   #rateQueues = new Map();       // accountId → RateQueue
   #configStore;
   #watcher = null;
+  #refreshTimer = null;
 
   /**
    * @param {{ accounts?: object[], terminals?: object[], configStore?: object }} opts
@@ -132,10 +133,12 @@ export class AccountPool {
   async load() {
     this.#accounts = await this.#configStore.readAccounts();
     this.#startWatch();
+    this.#startProactiveRefresh();
   }
 
   stop() {
     this.#watcher?.close();
+    clearInterval(this.#refreshTimer);
   }
 
   // ── Private ─────────────────────────────────────────────────────────────
@@ -215,5 +218,15 @@ export class AccountPool {
     }
     // Polling fallback for WSL2 where fs.watch is unreliable (inotify limitations).
     setInterval(mergeFromDisk, 15000).unref();
+  }
+
+  #startProactiveRefresh() {
+    this.#refreshTimer = setInterval(async () => {
+      for (const acc of this.#accounts) {
+        try { await this.ensureFreshToken(acc); }
+        catch (err) { console.error(`[pool] proactive refresh failed: ${acc.email ?? acc.id}:`, err.message); }
+      }
+    }, 10 * 60 * 1000);
+    this.#refreshTimer.unref();
   }
 }

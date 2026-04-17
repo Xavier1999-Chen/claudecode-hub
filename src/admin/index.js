@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { join, dirname } from 'node:path';
 import { randomBytes } from 'node:crypto';
 import { configStore } from '../shared/config.js';
+import { isExpired, refreshToken } from '../proxy/token-manager.js';
 import { generateName } from '../shared/names.js';
 import { createLoginSession, importCredentials, startTmuxLogin, submitAuthCode, waitForCredentials } from './oauth-login.js';
 
@@ -251,6 +252,10 @@ app.post('/api/oauth/import-manual/:sessionId', async (req, res) => {
  */
 async function syncRateLimit(acc) {
   try {
+    if (isExpired(acc)) {
+      const update = await refreshToken(acc);
+      Object.assign(acc.credentials, update.credentials);
+    }
     const fetch = (await import('node-fetch')).default;
     const { HttpsProxyAgent } = await import('https-proxy-agent');
     const proxyUrl = process.env.HTTPS_PROXY || process.env.https_proxy
