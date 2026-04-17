@@ -186,7 +186,7 @@ export default function UsageTab({ accounts, terminals }) {
       bucket.out += r.out ?? 0
     }
     return grouped
-  }, [records, group, accounts, terminals])
+  }, [records, group])
 
   const detailRows = useMemo(() => {
     const total = Object.values(groupedData).reduce((s, v) => s + v.usd, 0) || 1
