@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo } from 'react'
 import { getUsage } from '../api.js'
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, Legend, ResponsiveContainer, Cell,
-  PieChart, Pie, Text
+  PieChart, Pie,
 } from 'recharts'
 
 const PALETTE = ['#E87040', '#93c5fd', '#6ee7b7', '#c4b5fd', '#fde68a', '#f9a8d4', '#5eead4']
@@ -19,32 +19,26 @@ function modelLabel(key) {
   return { sonnet: 'Sonnet 4.6', haiku: 'Haiku 4.5', opus: 'Opus 4.6' }[key] ?? key
 }
 
-function fmtK(n) { if (!n) return '0'; return (n / 1000).toFixed(1) }
 function fmtUsd(n) { return n < 0.01 ? n.toFixed(4) : n.toFixed(2) }
 
-// Return record's "primary value" based on viewMode
+function fmtTok(n) {
+  if (n >= 1e6) return (n / 1e6).toFixed(1) + 'M'
+  if (n >= 1000) return (n / 1000).toFixed(1) + 'k'
+  return String(Math.round(n))
+}
+function fmtTokCell(n) { return n ? fmtTok(n) : '—' }
+function fmtValue(v, mode) { return mode === 'tokens' ? fmtTok(v) : '$' + fmtUsd(v) }
+
 function valueOf(r, mode) {
   return mode === 'tokens' ? (r.in ?? 0) + (r.out ?? 0) : (r.usd ?? 0)
 }
 
-// Format a numeric value for display based on viewMode
-function fmtValue(v, mode) {
-  if (mode === 'tokens') {
-    if (v >= 1e6) return (v / 1e6).toFixed(1) + 'M'
-    if (v >= 1000) return (v / 1000).toFixed(1) + 'k'
-    return String(Math.round(v))
-  }
-  return '$' + fmtUsd(v)
+function axisFmt(v, isTokens) {
+  return isTokens
+    ? (v >= 1e6 ? (v / 1e6).toFixed(1) + 'M' : (v / 1000).toFixed(0) + 'k')
+    : '$' + v.toFixed(2)
 }
 
-function fmtTokShort(n) {
-  if (!n) return '—'
-  if (n >= 1e6) return (n / 1e6).toFixed(1) + 'M'
-  if (n >= 1000) return (n / 1000).toFixed(1) + 'k'
-  return String(n)
-}
-
-// Doughnut center label custom component
 function DonutCenter({ cx, cy, total, label, mode }) {
   return (
     <>
@@ -55,6 +49,22 @@ function DonutCenter({ cx, cy, total, label, mode }) {
         {label}
       </text>
     </>
+  )
+}
+
+function Trend({ value, label }) {
+  if (value === null) return null
+  const cls = value >= 0 ? 'trend-up' : 'trend-down'
+  return <div className={`stat-trend ${cls}`}>{value >= 0 ? '↑' : '↓'}{Math.abs(value)}% {label}</div>
+}
+
+function TokenIOCell({ data }) {
+  return (
+    <td className="token-io">
+      {(data.in || data.out)
+        ? <>{fmtTokCell(data.in)} <span className="io-sep">/</span> {fmtTokCell(data.out)}</>
+        : <span className="io-none">—</span>}
+    </td>
   )
 }
 
@@ -80,7 +90,6 @@ export default function UsageTab({ accounts, terminals }) {
   const trendLabel = range === 'today' ? '较昨日' : range === '7d' ? '较上周' : '较上月'
   const days = range === 'today' ? 1 : range === '7d' ? 7 : 30
 
-  // ── Stats ────────────────────────────────────────────────────────────────────
   const totalUsd = useMemo(() => records.reduce((s, r) => s + (r.usd ?? 0), 0), [records])
   const totalTokens = useMemo(() => records.reduce((s, r) => s + (r.in ?? 0) + (r.out ?? 0), 0), [records])
   const totalReqs = records.length
@@ -99,7 +108,6 @@ export default function UsageTab({ accounts, terminals }) {
   const yEnd = new Date(); yEnd.setHours(0, 0, 0, 0)
   const yesterdayUsd = records.filter(r => r.ts >= yStart.getTime() && r.ts < yEnd.getTime()).reduce((s, r) => s + (r.usd ?? 0), 0)
 
-  // ── Daily chart data ──────────────────────────────────────────────────────────
   const groupKey = r => group === 'account' ? r.accountId : r.terminalId
   const labelFor = id => {
     if (group === 'account') return accounts.find(a => a.id === id)?.email ?? id
@@ -123,7 +131,6 @@ export default function UsageTab({ accounts, terminals }) {
     }
   }, [records, group, accounts, terminals, viewMode])
 
-  // ── Donut data ────────────────────────────────────────────────────────────────
   const donutData = useMemo(() => {
     const map = {}
     for (const r of records) {
@@ -134,7 +141,6 @@ export default function UsageTab({ accounts, terminals }) {
   }, [records, viewMode])
   const donutTotal = donutData.reduce((s, d) => s + d.value, 0) || 1
 
-  // ── Breakdown items ───────────────────────────────────────────────────────────
   const breakdownItems = useMemo(() => {
     const ids = [...new Set(records.map(groupKey))]
     return ids.map((id, i) => ({
@@ -145,7 +151,6 @@ export default function UsageTab({ accounts, terminals }) {
     }))
   }, [records, group, accounts, terminals])
 
-  // Auto-select first breakdown item
   useEffect(() => {
     setSelectedBreakdown(breakdownItems[0]?.id ?? null)
   }, [breakdownItems])
@@ -161,19 +166,31 @@ export default function UsageTab({ accounts, terminals }) {
     return Object.entries(map).map(([name, value]) => ({ name, value }))
   }, [records, selectedBreakdown, group, viewMode])
 
-  // ── Detail rows (USD mode) ─────────────────────────────────────────────────────
-  const detailRows = useMemo(() => {
+  // Single grouping pass shared by both detail table views
+  const groupedData = useMemo(() => {
     const grouped = {}
     for (const r of records) {
       const k = groupKey(r)
-      if (!grouped[k]) grouped[k] = { requests: 0, inTokens: 0, outTokens: 0, usd: 0 }
-      grouped[k].requests++
-      grouped[k].inTokens += r.in ?? 0
-      grouped[k].outTokens += r.out ?? 0
-      grouped[k].usd += r.usd ?? 0
+      if (!grouped[k]) grouped[k] = {
+        requests: 0, inTokens: 0, outTokens: 0, usd: 0,
+        sonnet: { in: 0, out: 0 }, haiku: { in: 0, out: 0 },
+        opus: { in: 0, out: 0 }, other: { in: 0, out: 0 },
+      }
+      const g = grouped[k]
+      g.requests++
+      g.inTokens += r.in ?? 0
+      g.outTokens += r.out ?? 0
+      g.usd += r.usd ?? 0
+      const bucket = g[modelKey(r.mdl)] ?? g.other
+      bucket.in += r.in ?? 0
+      bucket.out += r.out ?? 0
     }
-    const total = Object.values(grouped).reduce((s, v) => s + v.usd, 0) || 1
-    return Object.entries(grouped).map(([id, v]) => ({
+    return grouped
+  }, [records, group])
+
+  const detailRows = useMemo(() => {
+    const total = Object.values(groupedData).reduce((s, v) => s + v.usd, 0) || 1
+    return Object.entries(groupedData).map(([id, v]) => ({
       id, label: labelFor(id),
       requests: v.requests,
       inTokens: v.inTokens,
@@ -181,53 +198,25 @@ export default function UsageTab({ accounts, terminals }) {
       usd: v.usd.toFixed(4),
       pct: (v.usd / total * 100).toFixed(1),
     })).sort((a, b) => parseFloat(b.usd) - parseFloat(a.usd))
-  }, [records, group, accounts, terminals])
+  }, [groupedData, accounts, terminals])
 
-  // ── Token detail rows (tokens mode) ──────────────────────────────────────────
   const tokenDetailRows = useMemo(() => {
-    const grouped = {}
-    for (const r of records) {
-      const k = groupKey(r)
-      if (!grouped[k]) grouped[k] = { requests: 0, sonnet: { in: 0, out: 0 }, haiku: { in: 0, out: 0 }, opus: { in: 0, out: 0 }, other: { in: 0, out: 0 } }
-      grouped[k].requests++
-      const mk = modelKey(r.mdl)
-      const bucket = grouped[k][mk] ?? grouped[k].other
-      bucket.in += r.in ?? 0
-      bucket.out += r.out ?? 0
-    }
-    const totalTok = Object.values(grouped).reduce((s, v) =>
+    const totalTok = Object.values(groupedData).reduce((s, v) =>
       s + v.sonnet.in + v.sonnet.out + v.haiku.in + v.haiku.out + v.opus.in + v.opus.out + v.other.in + v.other.out, 0) || 1
-    return Object.entries(grouped).map(([id, v]) => {
+    return Object.entries(groupedData).map(([id, v]) => {
       const total = v.sonnet.in + v.sonnet.out + v.haiku.in + v.haiku.out + v.opus.in + v.opus.out + v.other.in + v.other.out
       return {
         id, label: labelFor(id),
         requests: v.requests,
-        sonnet: v.sonnet,
-        haiku: v.haiku,
-        opus: v.opus,
+        sonnet: v.sonnet, haiku: v.haiku, opus: v.opus,
         total,
         pct: (total / totalTok * 100).toFixed(1),
       }
     }).sort((a, b) => b.total - a.total)
-  }, [records, group, accounts, terminals])
-
-  function Trend({ value, label }) {
-    if (value === null) return null
-    const cls = value >= 0 ? 'trend-up' : 'trend-down'
-    return <div className={`stat-trend ${cls}`}>{value >= 0 ? '↑' : '↓'}{Math.abs(value)}% {label}</div>
-  }
+  }, [groupedData, accounts, terminals])
 
   const selectedItem = breakdownItems.find(i => i.id === selectedBreakdown)
   const isTokens = viewMode === 'tokens'
-
-  const dailyYFmt = v => isTokens
-    ? (v >= 1e6 ? (v/1e6).toFixed(1)+'M' : (v/1000).toFixed(0)+'k')
-    : '$' + v.toFixed(2)
-  const dailyTooltipFmt = (v, name) => [fmtValue(v, viewMode), name]
-  const breakdownTooltipFmt = v => fmtValue(v, viewMode)
-  const breakdownXFmt = v => isTokens
-    ? (v >= 1e6 ? (v/1e6).toFixed(1)+'M' : (v/1000).toFixed(0)+'k')
-    : '$' + v.toFixed(2)
 
   return (
     <div className="main">
@@ -273,22 +262,12 @@ export default function UsageTab({ accounts, terminals }) {
           <>
             <div className="stat-card">
               <div className="stat-label">总 Token（{rangeLabel}）</div>
-              <div className="stat-value">{fmtValue(totalTokens, 'tokens')}</div>
+              <div className="stat-value">{fmtTok(totalTokens)}</div>
               <Trend value={trendTok} label={trendLabel} />
             </div>
             <div className="stat-card">
               <div className="stat-label">日均 Token</div>
-              <div className="stat-value">{fmtValue(avgDailyTok, 'tokens')}</div>
-            </div>
-            <div className="stat-card">
-              <div className="stat-label">请求次数</div>
-              <div className="stat-value">{totalReqs}</div>
-              <Trend value={trendReqs} label={trendLabel} />
-            </div>
-            <div className="stat-card">
-              <div className="stat-label">总费用</div>
-              <div className="stat-value" style={{ fontSize: 22 }}>${fmtUsd(totalUsd)}</div>
-              <Trend value={trendUsd} label={trendLabel} />
+              <div className="stat-value">{fmtTok(avgDailyTok)}</div>
             </div>
           </>
         ) : (
@@ -300,20 +279,28 @@ export default function UsageTab({ accounts, terminals }) {
             </div>
             <div className="stat-card">
               <div className="stat-label">总 Token</div>
-              <div className="stat-value">{totalTokens >= 1e6 ? (totalTokens/1e6).toFixed(1)+'M' : fmtK(totalTokens)+'k'}</div>
+              <div className="stat-value">{fmtTok(totalTokens)}</div>
               <Trend value={trendTok} label={trendLabel} />
             </div>
-            <div className="stat-card">
-              <div className="stat-label">请求次数</div>
-              <div className="stat-value">{totalReqs}</div>
-              <Trend value={trendReqs} label={trendLabel} />
-            </div>
-            <div className="stat-card">
-              <div className="stat-label">日均费用</div>
-              <div className="stat-value">${fmtUsd(avgDailyUsd)}</div>
-              {yesterdayUsd > 0 && <div className="stat-trend trend-neutral">昨日 ${fmtUsd(yesterdayUsd)}</div>}
-            </div>
           </>
+        )}
+        <div className="stat-card">
+          <div className="stat-label">请求次数</div>
+          <div className="stat-value">{totalReqs}</div>
+          <Trend value={trendReqs} label={trendLabel} />
+        </div>
+        {isTokens ? (
+          <div className="stat-card">
+            <div className="stat-label">总费用</div>
+            <div className="stat-value" style={{ fontSize: 22 }}>${fmtUsd(totalUsd)}</div>
+            <Trend value={trendUsd} label={trendLabel} />
+          </div>
+        ) : (
+          <div className="stat-card">
+            <div className="stat-label">日均费用</div>
+            <div className="stat-value">${fmtUsd(avgDailyUsd)}</div>
+            {yesterdayUsd > 0 && <div className="stat-trend trend-neutral">昨日 ${fmtUsd(yesterdayUsd)}</div>}
+          </div>
         )}
       </div>
 
@@ -328,8 +315,8 @@ export default function UsageTab({ accounts, terminals }) {
           <ResponsiveContainer width="100%" height={220}>
             <BarChart data={dailyData.rows} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
               <XAxis dataKey="day" tick={{ fontSize: 12 }} axisLine={false} tickLine={false} />
-              <YAxis tickFormatter={dailyYFmt} tick={{ fontSize: 11 }} axisLine={false} tickLine={false} width={56} />
-              <Tooltip formatter={dailyTooltipFmt} />
+              <YAxis tickFormatter={v => axisFmt(v, isTokens)} tick={{ fontSize: 11 }} axisLine={false} tickLine={false} width={56} />
+              <Tooltip formatter={(v, name) => [fmtValue(v, viewMode), name]} />
               <Legend wrapperStyle={{ fontSize: 12 }} />
               {dailyData.keys.map((k, i) => (
                 <Bar key={k} dataKey={k} name={labelFor(k)} stackId="a" fill={PALETTE[i % PALETTE.length]} radius={i === dailyData.keys.length - 1 ? [3, 3, 0, 0] : [0, 0, 0, 0]} maxBarSize={52} />
@@ -397,9 +384,9 @@ export default function UsageTab({ accounts, terminals }) {
             </div>
             <ResponsiveContainer width="100%" height={220}>
               <BarChart data={breakdownChartData} layout="vertical" margin={{ top: 4, right: 16, left: 8, bottom: 0 }}>
-                <XAxis type="number" tickFormatter={breakdownXFmt} tick={{ fontSize: 11 }} axisLine={false} tickLine={false} />
+                <XAxis type="number" tickFormatter={v => axisFmt(v, isTokens)} tick={{ fontSize: 11 }} axisLine={false} tickLine={false} />
                 <YAxis type="category" dataKey="name" tick={{ fontSize: 12 }} axisLine={false} tickLine={false} width={140} />
-                <Tooltip formatter={breakdownTooltipFmt} />
+                <Tooltip formatter={v => fmtValue(v, viewMode)} />
                 <Bar dataKey="value" fill="#E87040" radius={[0, 4, 4, 0]} maxBarSize={28} />
               </BarChart>
             </ResponsiveContainer>
@@ -427,22 +414,10 @@ export default function UsageTab({ accounts, terminals }) {
                 <tr key={row.id}>
                   <td>{row.label}</td>
                   <td>{row.requests}</td>
-                  <td className="token-io">
-                    {(row.sonnet.in || row.sonnet.out)
-                      ? <>{fmtTokShort(row.sonnet.in)} <span className="io-sep">/</span> {fmtTokShort(row.sonnet.out)}</>
-                      : <span className="io-none">—</span>}
-                  </td>
-                  <td className="token-io">
-                    {(row.haiku.in || row.haiku.out)
-                      ? <>{fmtTokShort(row.haiku.in)} <span className="io-sep">/</span> {fmtTokShort(row.haiku.out)}</>
-                      : <span className="io-none">—</span>}
-                  </td>
-                  <td className="token-io">
-                    {(row.opus.in || row.opus.out)
-                      ? <>{fmtTokShort(row.opus.in)} <span className="io-sep">/</span> {fmtTokShort(row.opus.out)}</>
-                      : <span className="io-none">—</span>}
-                  </td>
-                  <td><strong>{fmtTokShort(row.total)}</strong></td>
+                  <TokenIOCell data={row.sonnet} />
+                  <TokenIOCell data={row.haiku} />
+                  <TokenIOCell data={row.opus} />
+                  <td><strong>{fmtTokCell(row.total)}</strong></td>
                   <td>{row.pct}%</td>
                 </tr>
               ))}
@@ -465,8 +440,8 @@ export default function UsageTab({ accounts, terminals }) {
                 <tr key={row.id}>
                   <td>{row.label}</td>
                   <td>{row.requests}</td>
-                  <td>{fmtK(row.inTokens)}k</td>
-                  <td>{fmtK(row.outTokens)}k</td>
+                  <td>{fmtTokCell(row.inTokens)}</td>
+                  <td>{fmtTokCell(row.outTokens)}</td>
                   <td>${row.usd}</td>
                   <td>{row.pct}%</td>
                 </tr>
