@@ -44,6 +44,17 @@ claude
 | Proxy   | 3180        | `PROXY_PORT` env var |
 | Admin   | 3182        | `ADMIN_PORT` env var |
 
+## Running in the background
+
+`bash start.sh` runs in the foreground — convenient for local dev, but the services will stop when you close the terminal or disconnect SSH. On a server, use `start-bg.sh` instead, which runs `start.sh` inside a detached tmux session:
+
+```bash
+bash start-bg.sh                         # start (returns immediately)
+tmux attach -t claudecode-hub            # see live logs; Ctrl+B then D to detach
+tmux kill-session -t claudecode-hub      # stop
+tmux ls                                  # check whether it's running
+```
+
 ## FAQ
 
 ### Claude Code can't reach the proxy — how do I set `ANTHROPIC_BASE_URL`?

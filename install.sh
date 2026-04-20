@@ -84,6 +84,31 @@ if ! command -v tmux >/dev/null 2>&1; then
 fi
 echo "tmux $(tmux -V | awk '{print $2}') detected"
 
+# ── Claude Code CLI check (auto-install if missing) ──────────────────────────
+# The OAuth login flow in src/admin/oauth-login.js spawns `claude login` inside
+# a tmux session; without the CLI, users can't add Anthropic accounts.
+if ! command -v claude >/dev/null 2>&1; then
+  echo ""
+  echo "Claude Code CLI (the \`claude\` command) is required to add Anthropic accounts"
+  echo "through the OAuth flow. Install it globally via npm now?"
+  echo "This will run: npm install -g @anthropic-ai/claude-code"
+  if confirm_default_yes ""; then
+    npm install -g @anthropic-ai/claude-code
+    if ! command -v claude >/dev/null 2>&1; then
+      echo ""
+      echo "Error: claude CLI install did not complete successfully."
+      echo "Try manually: npm install -g @anthropic-ai/claude-code"
+      exit 1
+    fi
+  else
+    echo ""
+    echo "Manual install:"
+    echo "  npm install -g @anthropic-ai/claude-code"
+    exit 1
+  fi
+fi
+echo "Claude Code CLI $(claude --version 2>/dev/null | head -1 || echo 'detected')"
+
 # ── Supabase environment setup ───────────────────────────────────────────────
 # Admin server requires SUPABASE_URL + SUPABASE_ANON_KEY to verify JWTs.
 # Frontend requires VITE_SUPABASE_URL + VITE_SUPABASE_ANON_KEY for auth.
