@@ -161,4 +161,4 @@ logs/             # Usage logs per account (gitignored)
 
 - [ ] Scheduled backup for `config/` (hourly tar.gz snapshots, 7-day retention). `terminals.json` is painful to restore since every user would need to update their `ANTHROPIC_API_KEY`.
 - [ ] Custom SMTP in Supabase (e.g. [Resend](https://resend.com/)) to escape the free-tier 2-emails-per-hour limit before onboarding real users.
-- [ ] Clean up legacy terminals with no `userId` — they show as "（无主）" for admins; decide whether to claim them or delete.
+- [x] Clean up legacy terminals with no `userId` — they show as "（无主）" for admins; decide whether to claim them or delete.
