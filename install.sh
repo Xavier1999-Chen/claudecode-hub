@@ -2,14 +2,135 @@
 set -e
 cd "$(dirname "$0")"
 
-# ── Check Node.js ────────────────────────────────────────────────────────────
-NODE_MAJOR=$(node -e 'process.stdout.write(process.versions.node.split(".")[0])' 2>/dev/null || echo "0")
-if [ "$NODE_MAJOR" -lt 18 ]; then
-  echo "Error: Node.js 18 or higher is required (found: $(node --version 2>/dev/null || echo 'not installed'))"
-  exit 1
-fi
+# Ask yes/no with default Y. Returns 0 (yes) or 1 (no).
+confirm_default_yes() {
+  local prompt="$1"
+  local ans
+  read -r -p "$prompt [Y/n]: " ans
+  case "$ans" in
+    n|N|no|NO) return 1 ;;
+    *) return 0 ;;
+  esac
+}
 
+# ── Node.js check (auto-install via nvm if missing/old) ──────────────────────
+node_major() {
+  node -e 'process.stdout.write(process.versions.node.split(".")[0])' 2>/dev/null || echo "0"
+}
+
+NODE_MAJOR=$(node_major)
+if [ "$NODE_MAJOR" -lt 22 ]; then
+  FOUND=$(node --version 2>/dev/null || echo "not installed")
+  echo ""
+  echo "Node.js 22+ is required (found: $FOUND)."
+  echo "Install Node 22 via nvm now? This will:"
+  echo "  - Install nvm to ~/.nvm (downloads install.sh from nvm-sh/nvm)"
+  echo "  - Install and switch to Node 22"
+  if confirm_default_yes ""; then
+    curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.3/install.sh | bash
+    export NVM_DIR="$HOME/.nvm"
+    # shellcheck disable=SC1091
+    [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"
+    nvm install 22
+    nvm use 22
+    NODE_MAJOR=$(node_major)
+    if [ "$NODE_MAJOR" -lt 22 ]; then
+      echo ""
+      echo "Error: Node 22 installation did not complete successfully."
+      echo "Install manually: https://nodejs.org/  or  nvm install 22"
+      exit 1
+    fi
+  else
+    echo ""
+    echo "Manual install:"
+    echo "  curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.3/install.sh | bash"
+    echo "  source ~/.bashrc"
+    echo "  nvm install 22 && nvm use 22"
+    exit 1
+  fi
+fi
 echo "Node.js $(node --version) detected"
+
+# ── tmux check (auto-install if missing) ─────────────────────────────────────
+if ! command -v tmux >/dev/null 2>&1; then
+  echo ""
+  echo "tmux is required (used by the OAuth login flow for adding Anthropic accounts)."
+  INSTALL_CMD=""
+  if command -v apt-get >/dev/null 2>&1; then
+    INSTALL_CMD="sudo apt-get update && sudo apt-get install -y tmux"
+  elif command -v brew >/dev/null 2>&1; then
+    INSTALL_CMD="brew install tmux"
+  else
+    echo "Error: no supported package manager found (apt-get or brew)."
+    echo "Install tmux manually from your distro's package repository."
+    exit 1
+  fi
+  echo "Install tmux now? This will run:"
+  echo "  $INSTALL_CMD"
+  echo "(sudo may prompt for your password)"
+  if confirm_default_yes ""; then
+    eval "$INSTALL_CMD"
+    if ! command -v tmux >/dev/null 2>&1; then
+      echo ""
+      echo "Error: tmux install did not complete successfully."
+      exit 1
+    fi
+  else
+    echo "Manual install:"
+    echo "  $INSTALL_CMD"
+    exit 1
+  fi
+fi
+echo "tmux $(tmux -V | awk '{print $2}') detected"
+
+# ── Supabase environment setup ───────────────────────────────────────────────
+# Admin server requires SUPABASE_URL + SUPABASE_ANON_KEY to verify JWTs.
+# Frontend requires VITE_SUPABASE_URL + VITE_SUPABASE_ANON_KEY for auth.
+if [ -f .env ] && grep -q '^SUPABASE_URL=' .env && grep -q '^SUPABASE_ANON_KEY=' .env; then
+  echo "Supabase config found in .env — reusing."
+else
+  cat <<'INFO'
+
+────── Supabase setup ──────
+This project uses Supabase for user login/registration.
+
+  1. Create a free project:  https://supabase.com/dashboard
+  2. Open the API settings:  https://supabase.com/dashboard/project/_/settings/api
+     (Supabase will redirect `_` to your actual project.)
+  3. Copy these two values and paste them below:
+     - Project URL           (e.g.  https://xxxxxxxxxxxxxxxx.supabase.co)
+     - anon public key       (e.g.  sb_publishable_xxxxx...)
+
+INFO
+  read -r -p "SUPABASE_URL: " SB_URL
+  read -r -p "SUPABASE_ANON_KEY: " SB_KEY
+
+  if [ -z "$SB_URL" ]; then
+    echo ""
+    echo "Error: SUPABASE_URL is empty."
+    echo "Re-run 'bash install.sh' and paste the Project URL from"
+    echo "  https://supabase.com/dashboard/project/_/settings/api"
+    exit 1
+  fi
+  if [ -z "$SB_KEY" ]; then
+    echo ""
+    echo "Error: SUPABASE_ANON_KEY is empty."
+    echo "Re-run 'bash install.sh' and paste the anon public key from"
+    echo "  https://supabase.com/dashboard/project/_/settings/api"
+    exit 1
+  fi
+
+  cat > .env <<EOF
+SUPABASE_URL=$SB_URL
+SUPABASE_ANON_KEY=$SB_KEY
+EOF
+  cat > src/admin/frontend/.env.local <<EOF
+VITE_MOCK=false
+VITE_SUPABASE_URL=$SB_URL
+VITE_SUPABASE_ANON_KEY=$SB_KEY
+EOF
+  echo ".env and src/admin/frontend/.env.local written."
+fi
 
 # ── Install root dependencies ────────────────────────────────────────────────
 echo ""
@@ -28,10 +149,31 @@ cd ../../..
 mkdir -p config
 
 # ── Done ─────────────────────────────────────────────────────────────────────
-echo ""
-echo "Installation complete."
-echo ""
-echo "Next steps:"
-echo "  1. Run: bash start.sh"
-echo "  2. Open admin UI: http://127.0.0.1:3182"
-echo "  3. Add a Claude account via the admin UI to get started"
+cat <<'DONE'
+
+Installation complete.
+
+Remaining manual steps (all in the Supabase Dashboard):
+
+  1. Apply the migration — SQL Editor:
+       https://supabase.com/dashboard/project/_/sql/new
+     Paste the contents of supabase/migrations/20260420000000_user_approval.sql and Run.
+
+  2. Configure auth URLs — Authentication → URL Configuration:
+       https://supabase.com/dashboard/project/_/auth/url-configuration
+     - Site URL:        http://<your-host>:3182
+     - Redirect URLs:   http://<your-host>:3182/**
+                        http://localhost:3182/**
+
+  3. Start the services:
+       bash start.sh
+
+  4. Register at http://<your-host>:3182, verify email, then promote yourself
+     to admin via SQL Editor:
+       UPDATE public.user_requests
+       SET status='approved', role='admin'
+       WHERE email='you@example.com';
+
+  5. Sign out and sign back in to pick up the admin JWT.
+
+DONE
