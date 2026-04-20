@@ -2,6 +2,10 @@ node_modules/
 config/accounts.json
 config/terminals.json
 logs/
+.env
+.env.local
+
+CLAUDE.md
 
 # Tool/session artifacts
 .superpowers/

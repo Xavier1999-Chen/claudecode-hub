@@ -1,5 +1,6 @@
-// In development (VITE_MOCK=true or no real backend), use mock data.
-// In production, calls go to the Express backend at the same origin.
+// API layer.
+// Dev (VITE_MOCK !== 'false') → mock data for UI iteration.
+// Prod / real backend → calls go to Express backend, authenticated with Supabase JWT.
 
 import {
   mockAccounts,
@@ -7,6 +8,7 @@ import {
   mockUsageRecords,
   mockPrevRecords,
 } from './mock/data.js'
+import { supabase } from './supabase.js'
 
 const USE_MOCK = import.meta.env.DEV && import.meta.env.VITE_MOCK !== 'false'
 
@@ -18,10 +20,72 @@ function delay(ms = 120) {
   return new Promise(r => setTimeout(r, ms))
 }
 
+// ── Authenticated fetch ─────────────────────────────────────────────────────
+// Attaches the current Supabase session JWT to every /api/* request.
+async function apiFetch(path, opts = {}) {
+  const { data: { session } } = await supabase.auth.getSession()
+  const headers = { ...(opts.headers ?? {}) }
+  if (session?.access_token) headers['Authorization'] = `Bearer ${session.access_token}`
+  if (opts.body && !headers['Content-Type']) headers['Content-Type'] = 'application/json'
+  const res = await fetch(path, { ...opts, headers })
+  if (res.status === 401) {
+    // Token invalid/expired — sign out so the login page appears
+    await supabase.auth.signOut()
+  }
+  return res
+}
+
+async function apiJson(path, opts) {
+  const res = await apiFetch(path, opts)
+  return res.json()
+}
+
+// ── Auth (real Supabase) ─────────────────────────────────────────────────────
+export async function signIn(email, password) {
+  const { data, error } = await supabase.auth.signInWithPassword({ email, password })
+  if (error) throw new Error(translateAuthError(error.message))
+  return data.session
+}
+
+export async function signUp(email, password) {
+  // emailRedirectTo = current origin so users land back on the URL they started from
+  // (localhost vs LAN IP vs deployed host). The URL pattern must be in Supabase's
+  // Redirect URLs whitelist.
+  const { data, error } = await supabase.auth.signUp({
+    email,
+    password,
+    options: { emailRedirectTo: window.location.origin },
+  })
+  if (error) throw new Error(translateAuthError(error.message))
+  return data
+}
+
+export async function signOut() {
+  await supabase.auth.signOut()
+}
+
+export async function resendVerification(email) {
+  const { error } = await supabase.auth.resend({
+    type: 'signup',
+    email,
+    options: { emailRedirectTo: window.location.origin },
+  })
+  if (error) throw new Error(translateAuthError(error.message))
+}
+
+function translateAuthError(msg) {
+  if (/Invalid login credentials/i.test(msg)) return '邮箱或密码错误'
+  if (/Email not confirmed/i.test(msg)) return '邮箱尚未验证，请查收验证邮件'
+  if (/already registered/i.test(msg)) return '该邮箱已注册'
+  if (/Password should be at least/i.test(msg)) return '密码至少需要 6 位'
+  if (/rate limit/i.test(msg)) return '操作过于频繁，请稍后再试'
+  return msg
+}
+
 // ── Accounts ─────────────────────────────────────────────────────────────────
 export async function getAccounts() {
   if (USE_MOCK) { await delay(); return JSON.parse(JSON.stringify(_accounts)) }
-  return fetch('/api/accounts').then(r => r.json())
+  return apiJson('/api/accounts')
 }
 
 export async function forceOnline(id) {
@@ -31,7 +95,7 @@ export async function forceOnline(id) {
     if (acc) { acc.status = 'idle'; acc.cooldownUntil = null }
     return JSON.parse(JSON.stringify(acc))
   }
-  return fetch(`/api/accounts/${id}/force-online`, { method: 'POST' }).then(r => r.json())
+  return apiJson(`/api/accounts/${id}/force-online`, { method: 'POST' })
 }
 
 export async function forceOffline(id) {
@@ -41,7 +105,7 @@ export async function forceOffline(id) {
     if (acc) acc.status = 'exhausted'
     return JSON.parse(JSON.stringify(acc))
   }
-  return fetch(`/api/accounts/${id}/force-offline`, { method: 'POST' }).then(r => r.json())
+  return apiJson(`/api/accounts/${id}/force-offline`, { method: 'POST' })
 }
 
 export async function deleteAccount(id) {
@@ -50,7 +114,7 @@ export async function deleteAccount(id) {
     _accounts = _accounts.filter(a => a.id !== id)
     return { ok: true }
   }
-  return fetch(`/api/accounts/${id}`, { method: 'DELETE' }).then(r => r.json())
+  return apiJson(`/api/accounts/${id}`, { method: 'DELETE' })
 }
 
 export async function renameAccount(id, nickname) {
@@ -60,11 +124,10 @@ export async function renameAccount(id, nickname) {
     if (acc) acc.nickname = nickname
     return JSON.parse(JSON.stringify(acc))
   }
-  return fetch(`/api/accounts/${id}`, {
+  return apiJson(`/api/accounts/${id}`, {
     method: 'PATCH',
-    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ nickname }),
-  }).then(r => r.json())
+  })
 }
 
 export async function refreshAccountToken(id) {
@@ -74,7 +137,7 @@ export async function refreshAccountToken(id) {
     if (acc) acc.tokenExpiresAt = Date.now() + 3600000
     return JSON.parse(JSON.stringify(acc))
   }
-  return fetch(`/api/accounts/${id}/refresh-token`, { method: 'POST' }).then(r => r.json())
+  return apiJson(`/api/accounts/${id}/refresh-token`, { method: 'POST' })
 }
 
 export async function syncAccountUsage(id) {
@@ -89,19 +152,18 @@ export async function syncAccountUsage(id) {
     }
     return JSON.parse(JSON.stringify(acc))
   }
-  return fetch(`/api/accounts/${id}/sync-usage`, { method: 'POST' }).then(r => r.json())
+  return apiJson(`/api/accounts/${id}/sync-usage`, { method: 'POST' })
 }
 
 // ── Terminals ─────────────────────────────────────────────────────────────────
 export async function getTerminals() {
   if (USE_MOCK) { await delay(); return JSON.parse(JSON.stringify(_terminals)) }
-  return fetch('/api/terminals').then(r => r.json())
+  return apiJson('/api/terminals')
 }
 
 export async function createTerminal(body) {
   if (USE_MOCK) {
     await delay()
-    const { randomBytes } = await import('crypto').catch(() => null) || {}
     const id = 'sk-hub-' + Math.random().toString(36).slice(2).padEnd(24, '0')
     const t = {
       id,
@@ -114,11 +176,10 @@ export async function createTerminal(body) {
     _terminals.push(t)
     return JSON.parse(JSON.stringify(t))
   }
-  return fetch('/api/terminals', {
+  return apiJson('/api/terminals', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
-  }).then(r => r.json())
+  })
 }
 
 export async function updateTerminal(id, body) {
@@ -129,11 +190,10 @@ export async function updateTerminal(id, body) {
     Object.assign(t, body)
     return JSON.parse(JSON.stringify(t))
   }
-  return fetch(`/api/terminals/${id}`, {
+  return apiJson(`/api/terminals/${id}`, {
     method: 'PATCH',
-    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
-  }).then(r => r.json())
+  })
 }
 
 export async function deleteTerminal(id) {
@@ -142,7 +202,7 @@ export async function deleteTerminal(id) {
     _terminals = _terminals.filter(t => t.id !== id)
     return { ok: true }
   }
-  return fetch(`/api/terminals/${id}`, { method: 'DELETE' }).then(r => r.json())
+  return apiJson(`/api/terminals/${id}`, { method: 'DELETE' })
 }
 
 // ── Usage ─────────────────────────────────────────────────────────────────────
@@ -162,7 +222,7 @@ export async function getUsage(range = '7d', group = 'account') {
       group,
     }
   }
-  return fetch(`/api/usage?range=${range}&group=${group}`).then(r => r.json())
+  return apiJson(`/api/usage?range=${range}&group=${group}`)
 }
 
 export async function syncAllUsage() {
@@ -177,7 +237,7 @@ export async function syncAllUsage() {
     }))
     return JSON.parse(JSON.stringify(_accounts))
   }
-  return fetch('/api/sync-usage-all', { method: 'POST' }).then(r => r.json())
+  return apiJson('/api/sync-usage-all', { method: 'POST' })
 }
 
 // ── OAuth ─────────────────────────────────────────────────────────────────────
@@ -189,7 +249,7 @@ export async function oauthStart() {
       authUrl: 'https://claude.ai/oauth/authorize?mock=true&client_id=mock',
     }
   }
-  return fetch('/api/oauth/start', { method: 'POST' }).then(r => r.json())
+  return apiJson('/api/oauth/start', { method: 'POST' })
 }
 
 export async function oauthSubmitCode(sessionId, code) {
@@ -198,11 +258,10 @@ export async function oauthSubmitCode(sessionId, code) {
     if (code === 'fail') throw new Error('invalid_code')
     return { ok: true }
   }
-  return fetch(`/api/oauth/submit-code/${sessionId}`, {
+  return apiJson(`/api/oauth/submit-code/${sessionId}`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ code }),
-  }).then(r => r.json())
+  })
 }
 
 export async function oauthImport(sessionId) {
@@ -225,5 +284,5 @@ export async function oauthImport(sessionId) {
     _accounts.push(newAcc)
     return { account: newAcc }
   }
-  return fetch(`/api/oauth/import/${sessionId}`, { method: 'POST' }).then(r => r.json())
+  return apiJson(`/api/oauth/import/${sessionId}`, { method: 'POST' })
 }

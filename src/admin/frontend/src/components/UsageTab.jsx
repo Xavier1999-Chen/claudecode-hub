@@ -17,7 +17,7 @@ function modelKey(mdl) {
 }
 
 function modelLabel(key) {
-  return { sonnet: 'Sonnet 4.6', haiku: 'Haiku 4.5', opus: 'Opus 4.6' }[key] ?? key
+  return key.charAt(0).toUpperCase() + key.slice(1)
 }
 
 function fmtUsd(n) { return n < 0.01 ? n.toFixed(4) : n.toFixed(2) }

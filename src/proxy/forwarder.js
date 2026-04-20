@@ -197,8 +197,8 @@ function addOAuthBeta(existing) {
 function detectModel(req) {
   try {
     const body = JSON.parse(req.rawBody?.toString() ?? '{}');
-    return body.model ?? 'claude-sonnet-4-6';
+    return body.model ?? 'unknown';
   } catch {
-    return 'claude-sonnet-4-6';
+    return 'unknown';
   }
 }

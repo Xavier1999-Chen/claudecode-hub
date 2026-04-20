@@ -1,3 +1,4 @@
+// Env vars loaded via `node --env-file-if-exists=.env` (see package.json / start.sh)
 import express from 'express';
 import { readFile as readFileAsync, readdir } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
@@ -7,6 +8,7 @@ import { configStore } from '../shared/config.js';
 import { isExpired, refreshToken } from '../proxy/token-manager.js';
 import { generateName } from '../shared/names.js';
 import { createLoginSession, importCredentials, startTmuxLogin, submitAuthCode, waitForCredentials } from './oauth-login.js';
+import { requireAuth, requireApproved, requireAdmin } from './auth.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PORT = process.env.ADMIN_PORT ?? 3182;
@@ -14,13 +16,18 @@ const DIST_DIR = join(__dirname, 'frontend', 'dist');
 const app = express();
 app.use(express.json());
 
-// Serve React frontend static files
+// Serve React frontend static files (unauthenticated — SPA shell)
 app.use(express.static(DIST_DIR));
 
-// SPA fallback — non-/api/ requests return index.html
+// SPA fallback — non-/api/ requests return index.html (also unauthenticated)
 app.get(/^(?!\/api\/).*/, (_req, res) => {
   res.sendFile(join(DIST_DIR, 'index.html'));
 });
+
+// All /api/* routes require a valid Supabase session by default.
+// requireApproved blocks users who registered but haven't been granted a role yet.
+// Individual admin-only routes attach requireAdmin on top.
+app.use('/api', requireAuth, requireApproved);
 
 // ── Accounts ─────────────────────────────────────────────────────────────
 
@@ -30,7 +37,7 @@ app.get('/api/accounts', async (_req, res) => {
   res.json(accounts.map(sanitiseAccount));
 });
 
-app.post('/api/accounts/:id/refresh-token', async (req, res) => {
+app.post('/api/accounts/:id/refresh-token', requireAdmin, async (req, res) => {
   const accounts = await configStore.readAccounts();
   const acc = accounts.find(a => a.id === req.params.id);
   if (!acc) return res.status(404).json({ error: 'not_found' });
@@ -53,7 +60,7 @@ app.post('/api/accounts/:id/refresh-token', async (req, res) => {
   }
 });
 
-app.post('/api/accounts/:id/sync-usage', async (req, res) => {
+app.post('/api/accounts/:id/sync-usage', requireAdmin, async (req, res) => {
   const accounts = await configStore.readAccounts();
   const acc = accounts.find(a => a.id === req.params.id);
   if (!acc) return res.status(404).json({ error: 'not_found' });
@@ -66,7 +73,7 @@ app.post('/api/accounts/:id/sync-usage', async (req, res) => {
   }
 });
 
-app.patch('/api/accounts/:id', async (req, res) => {
+app.patch('/api/accounts/:id', requireAdmin, async (req, res) => {
   const accounts = await configStore.readAccounts();
   const acc = accounts.find(a => a.id === req.params.id);
   if (!acc) return res.status(404).json({ error: 'not_found' });
@@ -75,7 +82,7 @@ app.patch('/api/accounts/:id', async (req, res) => {
   res.json(sanitiseAccount(acc));
 });
 
-app.post('/api/accounts/:id/force-online', async (req, res) => {
+app.post('/api/accounts/:id/force-online', requireAdmin, async (req, res) => {
   const accounts = await configStore.readAccounts();
   const acc = accounts.find(a => a.id === req.params.id);
   if (!acc) return res.status(404).json({ error: 'not_found' });
@@ -85,7 +92,7 @@ app.post('/api/accounts/:id/force-online', async (req, res) => {
   res.json(sanitiseAccount(acc));
 });
 
-app.post('/api/accounts/:id/force-offline', async (req, res) => {
+app.post('/api/accounts/:id/force-offline', requireAdmin, async (req, res) => {
   const accounts = await configStore.readAccounts();
   const acc = accounts.find(a => a.id === req.params.id);
   if (!acc) return res.status(404).json({ error: 'not_found' });
@@ -96,7 +103,7 @@ app.post('/api/accounts/:id/force-offline', async (req, res) => {
   res.json(sanitiseAccount(acc));
 });
 
-app.delete('/api/accounts/:id', async (req, res) => {
+app.delete('/api/accounts/:id', requireAdmin, async (req, res) => {
   let accounts = await configStore.readAccounts();
   const remaining = accounts.filter(a => a.id !== req.params.id);
   // Delete: reassign ALL terminals (both auto and manual)
@@ -179,7 +186,7 @@ app.get('/api/usage', async (req, res) => {
 const oauthSessions = new Map();
 
 // Step 1: start tmux claude login, return authorization URL
-app.post('/api/oauth/start', async (_req, res) => {
+app.post('/api/oauth/start', requireAdmin, async (_req, res) => {
   try {
     const { sessionId, configDir, tmuxSession, authUrl } = await startTmuxLogin();
     oauthSessions.set(sessionId, { configDir, tmuxSession });
@@ -190,7 +197,7 @@ app.post('/api/oauth/start', async (_req, res) => {
 });
 
 // Step 2: user pastes the authentication code
-app.post('/api/oauth/submit-code/:sessionId', async (req, res) => {
+app.post('/api/oauth/submit-code/:sessionId', requireAdmin, async (req, res) => {
   const session = oauthSessions.get(req.params.sessionId);
   if (!session) return res.status(404).json({ error: 'session_not_found' });
   const { code } = req.body;
@@ -204,7 +211,7 @@ app.post('/api/oauth/submit-code/:sessionId', async (req, res) => {
 });
 
 // Step 3: poll until credentials file appears, then import
-app.post('/api/oauth/import/:sessionId', async (req, res) => {
+app.post('/api/oauth/import/:sessionId', requireAdmin, async (req, res) => {
   const session = oauthSessions.get(req.params.sessionId);
   if (!session) return res.status(404).json({ error: 'session_not_found' });
 
@@ -223,13 +230,13 @@ app.post('/api/oauth/import/:sessionId', async (req, res) => {
 });
 
 // Fallback: manual terminal flow
-app.post('/api/oauth/start-manual', (_req, res) => {
+app.post('/api/oauth/start-manual', requireAdmin, (_req, res) => {
   const { sessionId, configDir, loginCmd } = createLoginSession();
   oauthSessions.set(sessionId, { configDir, tmuxSession: null });
   res.json({ sessionId, loginCmd });
 });
 
-app.post('/api/oauth/import-manual/:sessionId', async (req, res) => {
+app.post('/api/oauth/import-manual/:sessionId', requireAdmin, async (req, res) => {
   const session = oauthSessions.get(req.params.sessionId);
   if (!session) return res.status(404).json({ error: 'session_not_found' });
   oauthSessions.delete(req.params.sessionId);
@@ -380,7 +387,7 @@ async function reassignTerminals(removedAccountId, availableAccounts, modes) {
 // ─────────────────────────────────────────────────────────────────────────
 
 // Probe all accounts on demand (called by frontend adaptive polling)
-app.post('/api/sync-usage-all', async (_req, res) => {
+app.post('/api/sync-usage-all', requireAdmin, async (_req, res) => {
   try {
     const accounts = await configStore.readAccounts();
     for (const acc of accounts) await syncRateLimit(acc);
@@ -391,6 +398,9 @@ app.post('/api/sync-usage-all', async (_req, res) => {
   }
 });
 
-app.listen(PORT, '127.0.0.1', () => {
-  console.log(`[admin] listening on http://127.0.0.1:${PORT}`);
+// Bind to all interfaces — /api/* is protected by Supabase JWT auth (see auth.js).
+// Override with ADMIN_HOST=127.0.0.1 to restrict to localhost only.
+const HOST = process.env.ADMIN_HOST ?? '0.0.0.0';
+app.listen(PORT, HOST, () => {
+  console.log(`[admin] listening on http://${HOST}:${PORT}`);
 });

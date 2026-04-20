@@ -172,6 +172,29 @@ tr:hover td { background: #FDFAF8; }
 .io-sep { color: #c4b5a0; margin: 0 3px; }
 .io-none { color: #d6d3d1; }
 
+/* ── AUTH PAGE ───────────────────────────────────────────────────────────────── */
+.auth-page { min-height: 100vh; display: flex; align-items: center; justify-content: center; background: #F4F1EB; }
+.auth-card { background: white; border-radius: 14px; border: 1px solid #e7e5e4; padding: 32px 36px; width: 400px; max-width: 95vw; }
+.auth-logo { display: flex; align-items: center; gap: 10px; justify-content: center; margin-bottom: 28px; }
+.auth-logo-mark { font-size: 28px; color: #E87040; }
+.auth-logo-name { font-size: 20px; font-weight: 700; color: #1c1917; }
+.auth-tabs { display: flex; border: 1.5px solid #e7e5e4; border-radius: 9px; overflow: hidden; margin-bottom: 24px; }
+.auth-tab { flex: 1; padding: 9px; font-size: 14px; font-weight: 500; border: none; background: white; color: #78716c; cursor: pointer; transition: background 0.15s, color 0.15s; }
+.auth-tab.active { background: #1c1917; color: white; font-weight: 600; }
+.auth-switch { margin-top: 18px; text-align: center; font-size: 13px; color: #78716c; }
+.auth-link { background: none; border: none; color: #E87040; cursor: pointer; font-size: 13px; font-weight: 600; padding: 0; }
+.auth-link:hover { text-decoration: underline; }
+.auth-state-icon { font-size: 40px; text-align: center; margin-bottom: 12px; }
+.auth-state-title { font-size: 18px; font-weight: 700; color: #1c1917; text-align: center; margin-bottom: 10px; }
+.auth-state-desc { font-size: 14px; color: #78716c; text-align: center; line-height: 1.6; margin-bottom: 4px; }
+
+/* ── NAV USER ─────────────────────────────────────────────────────────────────── */
+.nav-user { display: flex; align-items: center; gap: 8px; }
+.nav-user-email { font-size: 13px; color: #a8a29e; max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.nav-user-badge { font-size: 11px; font-weight: 700; background: #E87040; color: white; padding: 2px 7px; border-radius: 4px; }
+.nav-signout-btn { background: none; border: none; cursor: pointer; color: #78716c; font-size: 16px; padding: 4px 6px; border-radius: 5px; line-height: 1; }
+.nav-signout-btn:hover { color: #ef4444; background: rgba(239,68,68,0.08); }
+
 /* ── MODAL ───────────────────────────────────────────────────────────────────── */
 .modal-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,.4); display: flex; align-items: center; justify-content: center; z-index: 100; }
 .modal { background: white; border-radius: 14px; padding: 24px; width: 420px; max-width: 95vw; }

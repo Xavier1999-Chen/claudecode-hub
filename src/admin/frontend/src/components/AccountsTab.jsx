@@ -85,7 +85,7 @@ function AccountActions({ acc, onAction, onClose }) {
   )
 }
 
-export default function AccountsTab({ accounts, terminals, onRefresh, onNewTerminal }) {
+export default function AccountsTab({ accounts, terminals, onRefresh, onNewTerminal, isAdmin = false }) {
   const [selectedTerminal, setSelectedTerminal] = useState(null)
   const [detailOpen, setDetailOpen] = useState(false)
   const [editingName, setEditingName] = useState(false)
@@ -315,30 +315,34 @@ export default function AccountsTab({ accounts, terminals, onRefresh, onNewTermi
                   {acc.plan?.toUpperCase() ?? 'PRO'}
                 </span>
                 <span className={`status-dot ${statusDot(acc)}`} />
-                {/* Sync usage button */}
-                <button
-                  className={`card-refresh-btn${syncingId === acc.id ? ' spinning' : ''}`}
-                  title="同步用量"
-                  onClick={async e => {
-                    e.stopPropagation()
-                    setSyncingId(acc.id)
-                    try {
-                      const updated = await syncAccountUsage(acc.id)
-                      await onRefresh()
-                    } finally { setSyncingId(null) }
-                  }}
-                  disabled={syncingId === acc.id}
-                >
-                  ↻
-                </button>
-                {/* Edit toggle button */}
-                <button
-                  className="card-edit-btn"
-                  title="管理账号"
-                  onClick={e => { e.stopPropagation(); setExpandedCard(actionsOpen ? null : acc.id) }}
-                >
-                  {actionsOpen ? '×' : '⋯'}
-                </button>
+                {isAdmin && (
+                  <>
+                    {/* Sync usage button */}
+                    <button
+                      className={`card-refresh-btn${syncingId === acc.id ? ' spinning' : ''}`}
+                      title="同步用量"
+                      onClick={async e => {
+                        e.stopPropagation()
+                        setSyncingId(acc.id)
+                        try {
+                          const updated = await syncAccountUsage(acc.id)
+                          await onRefresh()
+                        } finally { setSyncingId(null) }
+                      }}
+                      disabled={syncingId === acc.id}
+                    >
+                      ↻
+                    </button>
+                    {/* Edit toggle button */}
+                    <button
+                      className="card-edit-btn"
+                      title="管理账号"
+                      onClick={e => { e.stopPropagation(); setExpandedCard(actionsOpen ? null : acc.id) }}
+                    >
+                      {actionsOpen ? '×' : '⋯'}
+                    </button>
+                  </>
+                )}
               </div>
 
               {actionsOpen ? (

@@ -1,10 +1,10 @@
 #!/bin/bash
 cd "$(dirname "$0")"
 
-node src/proxy/index.js &
+node --env-file-if-exists=.env src/proxy/index.js &
 PROXY=$!
 
-node src/admin/index.js &
+node --env-file-if-exists=.env src/admin/index.js &
 ADMIN=$!
 
 stop() {
