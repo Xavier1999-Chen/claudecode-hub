@@ -170,6 +170,7 @@ export default function App() {
           accounts={accounts}
           usageRecords={usageRecords}
           onRefresh={refresh}
+          isAdmin={isAdmin}
         />
       )}
 

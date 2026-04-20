@@ -106,8 +106,8 @@ function TokenIOCell({ data }) {
 }
 
 export default function UsageTab({ accounts, terminals }) {
-  const [range, setRange] = useState('7d')
-  const [group, setGroup] = useState('account')
+  const [range, setRange] = useState('today')
+  const [group, setGroup] = useState('terminal')
   const [viewMode, setViewMode] = useState('tokens')
   const [records, setRecords] = useState([])
   const [prevRecords, setPrevRecords] = useState([])

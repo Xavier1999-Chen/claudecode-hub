@@ -22,7 +22,7 @@ function terminalUsage(usageRecords, termId, since) {
   return usd ? '$' + usd.toFixed(4) : '—'
 }
 
-export default function TerminalsTab({ terminals, accounts, usageRecords, onRefresh }) {
+export default function TerminalsTab({ terminals, accounts, usageRecords, onRefresh, isAdmin = false }) {
   const [editId, setEditId] = useState(null)
   const [editName, setEditName] = useState('')
 
@@ -56,14 +56,15 @@ export default function TerminalsTab({ terminals, accounts, usageRecords, onRefr
           <thead>
             <tr>
               <th>名称</th>
-              <th>Token</th>
+              <th>AUTH TOKEN</th>
+              <th></th>
               <th>模式</th>
-              <th>账号</th>
+              {isAdmin && <th>所有者</th>}
               <th>今日用量</th>
               <th>本周用量</th>
               <th>创建时间</th>
               <th>存在时长</th>
-              <th></th>
+              <th>挂载账号</th>
             </tr>
           </thead>
           <tbody>
@@ -94,18 +95,19 @@ export default function TerminalsTab({ terminals, accounts, usageRecords, onRefr
                   </span>
                 </td>
                 <td>
+                  <button className="btn btn-danger btn-sm" onClick={() => handleDelete(t.id)}>删除</button>
+                </td>
+                <td>
                   <span className={`mode-tag ${t.mode === 'auto' ? 'tag-auto' : 'tag-manual'}`}>
                     {t.mode === 'auto' ? '自动' : '手动'}
                   </span>
                 </td>
-                <td>{accountEmail(t.accountId)}</td>
+                {isAdmin && <td style={{ color: t.userEmail ? '#44403c' : '#c4b5a0', fontStyle: t.userEmail ? 'normal' : 'italic' }}>{t.userEmail || '（无主）'}</td>}
                 <td>{terminalUsage(usageRecords, t.id, today)}</td>
                 <td>{terminalUsage(usageRecords, t.id, weekAgo)}</td>
                 <td>{fmtDate(t.createdAt)}</td>
                 <td><span className="age-badge">{age(t.createdAt)}</span></td>
-                <td>
-                  <button className="btn btn-danger btn-sm" onClick={() => handleDelete(t.id)}>删除</button>
-                </td>
+                <td>{accountEmail(t.accountId)}</td>
               </tr>
             ))}
           </tbody>

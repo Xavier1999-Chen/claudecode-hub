@@ -114,8 +114,20 @@ app.delete('/api/accounts/:id', requireAdmin, async (req, res) => {
 
 // ── Terminals ────────────────────────────────────────────────────────────
 
-app.get('/api/terminals', async (_req, res) => {
-  res.json(await configStore.readTerminals());
+// Visible to user: own terminals. Admin sees everything (incl. legacy orphans with no userId).
+function visibleTerminals(terminals, user) {
+  if (user.role === 'admin') return terminals;
+  return terminals.filter(t => t.userId === user.id);
+}
+
+function canModifyTerminal(terminal, user) {
+  if (user.role === 'admin') return true;
+  return terminal.userId === user.id;
+}
+
+app.get('/api/terminals', async (req, res) => {
+  const terminals = await configStore.readTerminals();
+  res.json(visibleTerminals(terminals, req.user));
 });
 
 app.post('/api/terminals', async (req, res) => {
@@ -142,6 +154,8 @@ app.post('/api/terminals', async (req, res) => {
     name,
     mode,
     accountId,
+    userId: req.user.id,
+    userEmail: req.user.email,
     createdAt: Date.now(),
     lastUsedAt: null,
   };
@@ -154,6 +168,7 @@ app.patch('/api/terminals/:id', async (req, res) => {
   const terminals = await configStore.readTerminals();
   const t = terminals.find(t => t.id === req.params.id);
   if (!t) return res.status(404).json({ error: 'not_found' });
+  if (!canModifyTerminal(t, req.user)) return res.status(403).json({ error: 'not_your_terminal' });
   if (req.body.name !== undefined) t.name = req.body.name;
   if (req.body.mode !== undefined) t.mode = req.body.mode;
   if (req.body.accountId !== undefined) t.accountId = req.body.accountId;
@@ -163,6 +178,9 @@ app.patch('/api/terminals/:id', async (req, res) => {
 
 app.delete('/api/terminals/:id', async (req, res) => {
   let terminals = await configStore.readTerminals();
+  const t = terminals.find(t => t.id === req.params.id);
+  if (!t) return res.status(404).json({ error: 'not_found' });
+  if (!canModifyTerminal(t, req.user)) return res.status(403).json({ error: 'not_your_terminal' });
   terminals = terminals.filter(t => t.id !== req.params.id);
   await configStore.writeTerminals(terminals);
   res.json({ ok: true });
@@ -174,6 +192,15 @@ app.get('/api/usage', async (req, res) => {
   const { range = '7d', group = 'account' } = req.query;
   try {
     const data = await aggregateUsage(range, group);
+    // Non-admin users only see their own terminals' usage
+    if (req.user.role !== 'admin') {
+      const terminals = await configStore.readTerminals();
+      const ownTerminalIds = new Set(
+        terminals.filter(t => t.userId === req.user.id).map(t => t.id)
+      );
+      data.records = (data.records ?? []).filter(r => ownTerminalIds.has(r.terminalId));
+      data.prevRecords = (data.prevRecords ?? []).filter(r => ownTerminalIds.has(r.terminalId));
+    }
     res.json(data);
   } catch (err) {
     res.status(500).json({ error: err.message });

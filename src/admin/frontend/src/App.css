@@ -17,7 +17,7 @@ body {
 .nav-right { margin-left: auto; }
 
 /* ── Buttons ─────────────────────────────────────────────────────────────────── */
-.btn { border: none; padding: 9px 18px; border-radius: 8px; font-size: 14px; cursor: pointer; font-weight: 500; transition: opacity 0.15s; }
+.btn { border: none; padding: 9px 18px; border-radius: 8px; font-size: 14px; cursor: pointer; font-weight: 500; transition: opacity 0.15s; white-space: nowrap; }
 .btn:disabled { opacity: 0.5; cursor: not-allowed; }
 .btn-primary { background: #E87040; color: white; }
 .btn-primary:hover:not(:disabled) { background: #d4632e; }
@@ -103,17 +103,17 @@ body {
 .card-actions { padding: 8px 14px; border-top: 1px solid #f0ede8; display: flex; gap: 6px; justify-content: flex-end; }
 
 /* ── TERMINALS TABLE ─────────────────────────────────────────────────────────── */
-.table-wrap { background: white; border-radius: 12px; border: 1px solid #e7e5e4; overflow: hidden; }
+.table-wrap { background: white; border-radius: 12px; border: 1px solid #e7e5e4; overflow-x: auto; }
 table { width: 100%; border-collapse: collapse; font-size: 14px; }
 th { padding: 12px 16px; text-align: left; font-size: 11px; font-weight: 600; color: #a8a29e; text-transform: uppercase; letter-spacing: .04em; border-bottom: 1px solid #f0ede8; background: #FDFCFA; white-space: nowrap; }
-td { padding: 13px 16px; border-bottom: 1px solid #f5f3f0; color: #44403c; vertical-align: middle; }
+td { padding: 13px 16px; border-bottom: 1px solid #f5f3f0; color: #44403c; vertical-align: middle; white-space: nowrap; }
 tr:last-child td { border-bottom: none; }
 tr:hover td { background: #FDFAF8; }
 .token-cell { font-family: 'SF Mono', Consolas, monospace; font-size: 12px; background: #f4f1eb; padding: 3px 9px; border-radius: 5px; display: inline-flex; align-items: center; gap: 6px; }
-.mode-tag { font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 5px; }
+.mode-tag { font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 5px; white-space: nowrap; }
 .tag-auto { background: #ECFDF5; color: #16a34a; }
 .tag-manual { background: #FEF3EE; color: #E87040; }
-.age-badge { font-size: 11px; background: #f4f1eb; color: #78716c; padding: 2px 8px; border-radius: 5px; }
+.age-badge { font-size: 11px; background: #f4f1eb; color: #78716c; padding: 2px 8px; border-radius: 5px; white-space: nowrap; }
 .inline-edit-table { border: 1px solid #e7e5e4; border-radius: 5px; padding: 3px 8px; font-size: 13px; width: 130px; outline: none; }
 .inline-edit-table:focus { border-color: #E87040; }
 
