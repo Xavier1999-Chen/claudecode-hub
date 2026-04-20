@@ -28,7 +28,14 @@ export async function startTmuxLogin() {
 
   // Launch claude login in detached tmux session (80-col window)
   const claudePath = (await execAsync('which claude').catch(() => ({ stdout: 'claude' }))).stdout.trim();
-  const cmd = `tmux new-session -d -x 200 -y 50 -s ${tmuxSession} -e CLAUDE_CONFIG_DIR=${configDir} '${claudePath} login'`;
+  // Forward outbound-proxy env vars so `claude login` can reach api.anthropic.com
+  // on servers where direct egress is blocked (e.g. HK → Anthropic via a Singapore relay).
+  // tmux sessions don't inherit these from the parent shell unless passed with -e.
+  const proxyEnv = [];
+  for (const key of ['HTTPS_PROXY', 'https_proxy', 'HTTP_PROXY', 'http_proxy', 'NO_PROXY', 'no_proxy']) {
+    if (process.env[key]) proxyEnv.push(`-e ${key}=${process.env[key]}`);
+  }
+  const cmd = `tmux new-session -d -x 200 -y 50 -s ${tmuxSession} -e CLAUDE_CONFIG_DIR=${configDir} ${proxyEnv.join(' ')} '${claudePath} login'`;
   await execAsync(cmd);
 
   // Step 1: wait for theme prompt, then press Enter to accept default
