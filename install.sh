@@ -33,6 +33,7 @@ if [ "$NODE_MAJOR" -lt 22 ]; then
     [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"
     nvm install 22
     nvm use 22
+    nvm alias default 22
     NODE_MAJOR=$(node_major)
     if [ "$NODE_MAJOR" -lt 22 ]; then
       echo ""
