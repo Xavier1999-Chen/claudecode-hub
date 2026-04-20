@@ -348,7 +348,7 @@ function sanitiseAccount(acc) {
 }
 
 async function aggregateUsage(range, group) {
-  const projectRoot = fileURLToPath(new URL('../../..', import.meta.url));
+  const projectRoot = fileURLToPath(new URL('../..', import.meta.url));
   const logsDir = join(projectRoot, 'logs');
 
   const now = Date.now();

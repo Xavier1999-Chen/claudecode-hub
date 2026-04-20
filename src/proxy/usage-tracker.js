@@ -3,7 +3,7 @@ import { mkdir, appendFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const projectRoot = fileURLToPath(new URL('../../..', import.meta.url));
+const projectRoot = fileURLToPath(new URL('../..', import.meta.url));
 const DEFAULT_LOGS_DIR = join(projectRoot, 'logs');
 
 // Rough USD cost per million tokens (input/output) by model prefix
