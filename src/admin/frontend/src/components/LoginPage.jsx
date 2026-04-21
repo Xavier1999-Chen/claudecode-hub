@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { signIn, signUp } from '../api.js'
+import LogoMark from './LogoMark.jsx'
 
 export default function LoginPage() {
   const [mode, setMode] = useState('login') // 'login' | 'register'
@@ -64,7 +65,7 @@ export default function LoginPage() {
     <div className="auth-page">
       <div className="auth-card">
         <div className="auth-logo">
-          <span className="auth-logo-mark">✳</span>
+          <LogoMark size={28} color="#E87040" />
           <span className="auth-logo-name">claudecode-hub</span>
         </div>
 
