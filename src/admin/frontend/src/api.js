@@ -95,7 +95,7 @@ function translateAuthError(msg) {
   if (/Password should be at least/i.test(msg)) return '密码至少需要 6 位'
   if (/rate limit/i.test(msg)) return '操作过于频繁，请稍后再试'
   if (/Token has expired or is invalid|otp_expired|invalid.*token/i.test(msg)) {
-    return '验证链接已失效，请回到注册页重发验证邮件'
+    return '验证链接已失效，请回到登录页用注册邮箱登录后重发验证邮件'
   }
   return msg
 }

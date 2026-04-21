@@ -96,7 +96,7 @@ export default function App() {
     return <ConfirmEmailPage tokenHash={redirect.tokenHash} type={redirect.type} />
   }
   if (redirect.mode === 'verify-error') {
-    return <VerifyErrorPage errorCode={redirect.errorCode} errorDescription={redirect.errorDescription} />
+    return <VerifyErrorPage />
   }
 
   // ── Auth gates ──────────────────────────────────────────────────────────────
