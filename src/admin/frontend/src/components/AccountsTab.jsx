@@ -367,7 +367,7 @@ export default function AccountsTab({ accounts, terminals, onRefresh, onNewTermi
                         <span>
                           5小时窗口
                           {reset5h && <span className="usage-reset"> · {reset5h}</span>}
-                          {isWindowRateLimited(acc.rateLimit?.window5h) && <span className="cooling-icon"> ⏸</span>}
+                          {isWindowRateLimited(acc.rateLimit?.window5h) && <span className="cooling-icon"> · 冷却中</span>}
                         </span>
                         <span className="usage-pct">{p5h !== null ? `${p5h}%` : '—'}</span>
                       </div>
@@ -384,7 +384,7 @@ export default function AccountsTab({ accounts, terminals, onRefresh, onNewTermi
                         <span>
                           本周
                           {resetWeek && <span className="usage-reset"> · {resetWeek}</span>}
-                          {isWindowRateLimited(acc.rateLimit?.weekly) && <span className="cooling-icon"> ⏸</span>}
+                          {isWindowRateLimited(acc.rateLimit?.weekly) && <span className="cooling-icon"> · 冷却中</span>}
                         </span>
                         <span className="usage-pct">{pw !== null ? `${pw}%` : '—'}</span>
                       </div>
