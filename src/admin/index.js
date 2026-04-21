@@ -9,6 +9,7 @@ import { isExpired, refreshToken } from '../proxy/token-manager.js';
 import { generateName } from '../shared/names.js';
 import { createLoginSession, importCredentials, startTmuxLogin, submitAuthCode, waitForCredentials } from './oauth-login.js';
 import { requireAuth, requireApproved, requireAdmin } from './auth.js';
+import { isAccountCooling, reassignCoolingTerminals } from './reassignment.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PORT = process.env.ADMIN_PORT ?? 3182;
@@ -67,6 +68,9 @@ app.post('/api/accounts/:id/sync-usage', requireAdmin, async (req, res) => {
   try {
     await syncRateLimit(acc);
     await configStore.writeAccounts(accounts);
+    if (isAccountCooling(acc)) {
+      await reassignCoolingTerminals(acc.id, accounts, ['auto'], configStore);
+    }
     res.json(sanitiseAccount(acc));
   } catch (err) {
     res.status(502).json({ error: err.message });
@@ -419,6 +423,11 @@ app.post('/api/sync-usage-all', requireAdmin, async (_req, res) => {
     const accounts = await configStore.readAccounts();
     for (const acc of accounts) await syncRateLimit(acc);
     await configStore.writeAccounts(accounts);
+    for (const acc of accounts) {
+      if (isAccountCooling(acc)) {
+        await reassignCoolingTerminals(acc.id, accounts, ['auto'], configStore);
+      }
+    }
     res.json(accounts.map(sanitiseAccount));
   } catch (err) {
     res.status(500).json({ error: err.message });
