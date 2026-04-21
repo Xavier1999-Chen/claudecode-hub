@@ -14,8 +14,30 @@ const proxyUrl = process.env.HTTPS_PROXY || process.env.https_proxy
                || process.env.HTTP_PROXY  || process.env.http_proxy;
 const proxyAgent = proxyUrl ? new HttpsProxyAgent(proxyUrl) : undefined;
 
+const PROXY_ENV_KEYS = ['HTTPS_PROXY', 'https_proxy', 'HTTP_PROXY', 'http_proxy', 'NO_PROXY', 'no_proxy'];
+
+/**
+ * Build argv for `tmux new-session`. Pure function; argv form bypasses /bin/sh,
+ * so proxy env values containing shell metacharacters are passed through intact.
+ */
+export function buildTmuxNewSessionArgs({ tmuxSession, configDir, claudePath, env = {} }) {
+  const args = [
+    'new-session', '-d',
+    '-x', '200', '-y', '50',
+    '-s', tmuxSession,
+    '-e', `CLAUDE_CONFIG_DIR=${configDir}`,
+  ];
+  for (const key of PROXY_ENV_KEYS) {
+    if (env[key]) args.push('-e', `${key}=${env[key]}`);
+  }
+  args.push(`${claudePath} login`);
+  return args;
+}
+
 /**
  * Start `claude login` in a detached tmux session with an isolated CLAUDE_CONFIG_DIR.
+ * Forwards HTTPS_PROXY / HTTP_PROXY / NO_PROXY (and lowercase variants) from process.env
+ * via tmux `-e`, so the child can reach api.anthropic.com behind an outbound proxy.
  * Handles two interactive prompts (theme + login method), then captures the authorization URL.
  * Returns { sessionId, configDir, tmuxSession, authUrl }
  */
@@ -26,10 +48,11 @@ export async function startTmuxLogin() {
 
   await mkdir(configDir, { recursive: true });
 
-  // Launch claude login in detached tmux session (80-col window)
   const claudePath = (await execAsync('which claude').catch(() => ({ stdout: 'claude' }))).stdout.trim();
-  const cmd = `tmux new-session -d -x 200 -y 50 -s ${tmuxSession} -e CLAUDE_CONFIG_DIR=${configDir} '${claudePath} login'`;
-  await execAsync(cmd);
+  // Use execFile (argv form) to avoid /bin/sh interpreting proxy values that may
+  // contain $, spaces, `;`, backticks, etc. — same rationale as submitAuthCode below.
+  const args = buildTmuxNewSessionArgs({ tmuxSession, configDir, claudePath, env: process.env });
+  await execFileAsync('tmux', args);
 
   // Step 1: wait for theme prompt, then press Enter to accept default
   await waitForText(tmuxSession, 'Choose the text style', 10000);
