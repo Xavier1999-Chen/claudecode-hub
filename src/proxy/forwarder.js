@@ -1,6 +1,7 @@
 import fetch from 'node-fetch';
 import { HttpsProxyAgent } from 'https-proxy-agent';
 import { createUsageTapper } from './usage-tracker.js';
+import { isOAuthRevoked } from './permission-guard.js';
 
 const UPSTREAM = 'https://api.anthropic.com';
 const UPSTREAM_TIMEOUT_MS = 60_000;
@@ -121,6 +122,32 @@ export async function forwardRequest(req, res, account, terminalId, pool, triedI
       res.status(401).json({ error: 'authentication_error', message: err.message });
       return;
     }
+  }
+
+  // Permanent authorization failure: OAuth has been revoked at Anthropic (org
+  // banned, plan downgraded). x-should-retry: false — don't retry this account.
+  // Mark it exhausted so future selections skip it, then fall back silently.
+  if (upRes.status === 403) {
+    const bodyText = await upRes.text();
+    if (isOAuthRevoked(upRes.status, bodyText)) {
+      console.warn(`[fwd] 403 permission_error on ${account.email ?? account.id}, marking exhausted and falling back`);
+      pool.markUnauthorized(account.id).catch(() => {});
+      triedIds.add(account.id);
+      const fallback = pool.selectFallback(triedIds);
+      if (fallback) {
+        onFallback?.(fallback);
+        return forwardRequest(req, res, fallback, terminalId, pool, triedIds, onFallback);
+      }
+      res.status(503).json({ error: 'no_available_accounts', message: 'account unauthorized and no fallback available' });
+      return;
+    }
+    // Non-revocation 403 (e.g. model access denied for a specific request) —
+    // forward the already-consumed body through to the client as-is.
+    for (const [k, v] of upRes.headers.entries()) {
+      if (!HOP_BY_HOP.has(k.toLowerCase())) res.setHeader(k, v);
+    }
+    res.status(403).end(bodyText);
+    return;
   }
 
   // Handle rate limiting — 429/529 are quota/load signals, not account failures.
