@@ -7,8 +7,11 @@ import UsageTab from './components/UsageTab.jsx'
 import OAuthModal from './components/OAuthModal.jsx'
 import TerminalModal from './components/TerminalModal.jsx'
 import LoginPage from './components/LoginPage.jsx'
+import ConfirmEmailPage from './components/ConfirmEmailPage.jsx'
+import VerifyErrorPage from './components/VerifyErrorPage.jsx'
 import { getAccounts, getTerminals, getUsage, syncAllUsage, signOut, resendVerification } from './api.js'
 import { supabase, getRole, getStatus, isApproved } from './supabase.js'
+import { classifyAuthRedirect } from './auth-redirect.js'
 
 function rateLimitSnapshot(accs) {
   return accs.map(a => `${a.id}:${a.rateLimit?.window5h?.utilization ?? ''}:${a.rateLimit?.weekly?.utilization ?? ''}`).join('|')
@@ -82,6 +85,18 @@ export default function App() {
   async function handleSignOut() {
     await signOut()
     setSession(null)
+  }
+
+  // ── Email-verification redirect (GitHub #6) ─────────────────────────────────
+  // Run BEFORE the session-based auth gates: a cross-device email click
+  // (e.g. signed up on PC, opened email on phone) has no session yet, but
+  // the URL still carries the token_hash that needs to drive verifyOtp.
+  const redirect = classifyAuthRedirect(new URLSearchParams(window.location.search))
+  if (redirect.mode === 'confirm-email') {
+    return <ConfirmEmailPage tokenHash={redirect.tokenHash} type={redirect.type} />
+  }
+  if (redirect.mode === 'verify-error') {
+    return <VerifyErrorPage />
   }
 
   // ── Auth gates ──────────────────────────────────────────────────────────────

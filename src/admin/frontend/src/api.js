@@ -48,13 +48,28 @@ export async function signIn(email, password) {
 }
 
 export async function signUp(email, password) {
-  // emailRedirectTo = current origin so users land back on the URL they started from
-  // (localhost vs LAN IP vs deployed host). The URL pattern must be in Supabase's
-  // Redirect URLs whitelist.
+  // emailRedirectTo = current origin's /auth/confirm so the email link lands on
+  // our own intermediate confirmation page (see GitHub #6). The Supabase email
+  // template MUST be customised to match — the default `{{ .ConfirmationURL }}`
+  // points straight at Supabase's auto-consume verify endpoint, which QQ Mail
+  // and similar scanners pre-fetch and invalidate.
   const { data, error } = await supabase.auth.signUp({
     email,
     password,
-    options: { emailRedirectTo: window.location.origin },
+    options: { emailRedirectTo: `${window.location.origin}/auth/confirm` },
+  })
+  if (error) throw new Error(translateAuthError(error.message))
+  return data
+}
+
+// Called from ConfirmEmailPage when the user clicks "verify" on the
+// intermediate page. Uses verifyOtp with the token_hash from the URL —
+// works cross-device (no PKCE verifier needed) and only fires on real
+// user interaction, so prefetchers cannot trigger it.
+export async function confirmEmail({ tokenHash, type }) {
+  const { data, error } = await supabase.auth.verifyOtp({
+    token_hash: tokenHash,
+    type,
   })
   if (error) throw new Error(translateAuthError(error.message))
   return data
@@ -68,7 +83,7 @@ export async function resendVerification(email) {
   const { error } = await supabase.auth.resend({
     type: 'signup',
     email,
-    options: { emailRedirectTo: window.location.origin },
+    options: { emailRedirectTo: `${window.location.origin}/auth/confirm` },
   })
   if (error) throw new Error(translateAuthError(error.message))
 }
@@ -79,6 +94,9 @@ function translateAuthError(msg) {
   if (/already registered/i.test(msg)) return '该邮箱已注册'
   if (/Password should be at least/i.test(msg)) return '密码至少需要 6 位'
   if (/rate limit/i.test(msg)) return '操作过于频繁，请稍后再试'
+  if (/Token has expired or is invalid|otp_expired|invalid.*token/i.test(msg)) {
+    return '验证链接已失效，请回到登录页用注册邮箱登录后重发验证邮件'
+  }
   return msg
 }
 
