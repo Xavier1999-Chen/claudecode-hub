@@ -9,15 +9,17 @@ function fmtExpiry(ts) {
   if (diff < 0) return '已过期'
   const h = Math.floor(diff / 3600000)
   const m = Math.floor((diff % 3600000) / 60000)
-  return h > 0 ? `${h}h ${m}m 后过期` : `${m}m 后过期`
+  return h > 0 ? `${h}h ${m}m 后自动刷新` : `${m}m 后自动刷新`
 }
 
 function fmtReset(ts) {
   if (!ts) return null
   const diff = ts - Date.now()
   if (diff <= 0) return '即将重置'
-  const h = Math.floor(diff / 3600000)
+  const d = Math.floor(diff / 86400000)
+  const h = Math.floor((diff % 86400000) / 3600000)
   const m = Math.floor((diff % 3600000) / 60000)
+  if (d > 0) return `${d}d ${h}h ${m}m 后重置`
   return h > 0 ? `${h}h ${m}m 后重置` : `${m}m 后重置`
 }
 
@@ -116,9 +118,13 @@ export default function AccountsTab({ accounts, terminals, onRefresh, onNewTermi
     return syncedTerminal?.accountId === acc.id
   }
 
+  function isWindowRateLimited(w) {
+    if (!w) return false
+    return w.status === 'blocked' || (w.utilization != null && w.utilization >= 1.0)
+  }
+
   function isRateLimited(acc) {
-    const w5h = acc.rateLimit?.window5h
-    return w5h?.status === 'blocked' || (w5h?.utilization != null && w5h.utilization >= 1.0)
+    return isWindowRateLimited(acc.rateLimit?.window5h) || isWindowRateLimited(acc.rateLimit?.weekly)
   }
 
   function statusDot(acc) {
@@ -296,12 +302,12 @@ export default function AccountsTab({ accounts, terminals, onRefresh, onNewTermi
           const pw  = wk?.utilization  != null ? Math.round(wk.utilization  * 100) : null
           const mounted = isMounted(acc)
           const exhausted = acc.status === 'exhausted' || isRateLimited(acc)
-          const rateLimited = isRateLimited(acc)
           const terms = terminalsOnAccount(acc.id)
           const actionsOpen = expandedCard === acc.id
           const displayName = acc.nickname || acc.email
           const expiry = fmtExpiry(acc.tokenExpiresAt)
-          const resetLabel = rateLimited ? fmtReset(acc.rateLimit?.window5h?.resetAt) : null
+          const reset5h = fmtReset(acc.rateLimit?.window5h?.resetAt)
+          const resetWeek = fmtReset(acc.rateLimit?.weekly?.resetAt)
 
           return (
             <div
@@ -355,11 +361,14 @@ export default function AccountsTab({ accounts, terminals, onRefresh, onNewTermi
                 <>
                   <div className="card-body">
                     {mounted && <div className="mounted-label">✓ 已挂载</div>}
-                    {rateLimited && resetLabel && <div className="token-expiry rate-limited-label">⏸ 冷却中 · {resetLabel}</div>}
-                    {!rateLimited && expiry && <div className="token-expiry">{expiry}</div>}
+                    {expiry && <div className="token-expiry">Auth Token {expiry}</div>}
                     <div className="usage-row">
                       <div className="usage-meta">
-                        <span>5小时窗口</span>
+                        <span>
+                          5小时窗口
+                          {reset5h && <span className="usage-reset"> · {reset5h}</span>}
+                          {isWindowRateLimited(acc.rateLimit?.window5h) && <span className="cooling-icon"> · 冷却中</span>}
+                        </span>
                         <span className="usage-pct">{p5h !== null ? `${p5h}%` : '—'}</span>
                       </div>
                       {p5h !== null ? (
@@ -372,7 +381,11 @@ export default function AccountsTab({ accounts, terminals, onRefresh, onNewTermi
                     </div>
                     <div className="usage-row">
                       <div className="usage-meta">
-                        <span>本周</span>
+                        <span>
+                          本周
+                          {resetWeek && <span className="usage-reset"> · {resetWeek}</span>}
+                          {isWindowRateLimited(acc.rateLimit?.weekly) && <span className="cooling-icon"> · 冷却中</span>}
+                        </span>
                         <span className="usage-pct">{pw !== null ? `${pw}%` : '—'}</span>
                       </div>
                       {pw !== null ? (
