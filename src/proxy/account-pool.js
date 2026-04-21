@@ -131,11 +131,13 @@ export class AccountPool {
     const acc = this.#accounts.find(a => a.id === accountId);
     if (!acc) return;
     acc.status = 'exhausted';
+    acc.plan = 'free';   // OAuth revocation typically means the org lost its paid plan
     try {
       const disk = await this.#configStore.readAccounts();
       const onDisk = disk.find(a => a.id === accountId);
-      if (onDisk && onDisk.status !== 'exhausted') {
+      if (onDisk && (onDisk.status !== 'exhausted' || onDisk.plan !== 'free')) {
         onDisk.status = 'exhausted';
+        onDisk.plan = 'free';
         await this.#configStore.writeAccounts(disk);
       }
     } catch { /* non-fatal: admin will persist on next probe */ }

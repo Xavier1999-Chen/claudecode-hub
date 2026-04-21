@@ -317,7 +317,7 @@ export default function AccountsTab({ accounts, terminals, onRefresh, onNewTermi
             >
               <div className={`card-header ${exhausted ? 'exhausted' : ''}`}>
                 <span className="card-email" title={acc.email}>{displayName}</span>
-                <span className={`plan-badge ${acc.plan === 'max' ? 'badge-max' : 'badge-pro'}`}>
+                <span className={`plan-badge ${acc.plan === 'max' ? 'badge-max' : acc.plan === 'free' ? 'badge-free' : 'badge-pro'}`}>
                   {acc.plan?.toUpperCase() ?? 'PRO'}
                 </span>
                 <span className={`status-dot ${statusDot(acc)}`} />

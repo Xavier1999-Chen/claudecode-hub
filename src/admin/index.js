@@ -332,6 +332,7 @@ async function syncRateLimit(acc) {
       if (isOAuthRevoked(res.status, body)) {
         console.warn(`[syncRateLimit] 403 permission_error on ${acc.email ?? acc.id}, marking exhausted`);
         acc.status = 'exhausted';
+        acc.plan = 'free';
       }
       return;
     }
