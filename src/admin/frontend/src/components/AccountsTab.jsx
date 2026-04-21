@@ -301,7 +301,7 @@ export default function AccountsTab({ accounts, terminals, onRefresh, onNewTermi
           const actionsOpen = expandedCard === acc.id
           const displayName = acc.nickname || acc.email
           const expiry = fmtExpiry(acc.tokenExpiresAt)
-          const resetLabel = rateLimited ? fmtReset(acc.rateLimit?.window5h?.resetAt) : null
+          const resetLabel = fmtReset(acc.rateLimit?.window5h?.resetAt)
 
           return (
             <div
@@ -355,8 +355,9 @@ export default function AccountsTab({ accounts, terminals, onRefresh, onNewTermi
                 <>
                   <div className="card-body">
                     {mounted && <div className="mounted-label">✓ 已挂载</div>}
-                    {rateLimited && resetLabel && <div className="token-expiry rate-limited-label">⏸ 冷却中 · {resetLabel}</div>}
-                    {!rateLimited && expiry && <div className="token-expiry">{expiry}</div>}
+                    {rateLimited && <div className="token-expiry rate-limited-label">⏸ 冷却中</div>}
+                    {expiry && <div className="token-expiry">Token {expiry}</div>}
+                    {resetLabel && <div className="token-expiry">5h {resetLabel}</div>}
                     <div className="usage-row">
                       <div className="usage-meta">
                         <span>5小时窗口</span>
