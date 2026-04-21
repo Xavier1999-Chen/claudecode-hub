@@ -62,10 +62,7 @@ export default function ConfirmEmailPage({ tokenHash, type }) {
         <div className="auth-state-icon">✉️</div>
         <div className="auth-state-title">确认邮箱验证</div>
         <div className="auth-state-desc">
-          点击下方按钮完成邮箱验证。<br />
-          <span style={{ fontSize: 12, color: '#a8a29e' }}>
-            (此步骤可避免邮件安全扫描器自动消耗验证链接)
-          </span>
+          点击下方按钮完成邮箱验证。
         </div>
         <button
           className="btn btn-primary"
