@@ -18,6 +18,11 @@ function makeAccount(id, opts = {}) {
         utilization: opts.utilization,
         status: opts.w5hStatus ?? 'allowed',
       },
+      weekly: {
+        resetAt: opts.weeklyResetAt ?? (Date.now() + 86400000),
+        utilization: opts.weeklyUtilization,
+        status: opts.weeklyStatus ?? 'allowed',
+      },
       weeklyTokens: { used: 0, limit: 1000000, resetAt: Date.now() + 86400000 },
     },
     addedAt: opts.addedAt ?? Date.now(),
@@ -119,6 +124,30 @@ test('auto mode falls back to soonest-resetAt cooling account when every account
   });
   const acc = pool.selectAccount(makeTerminal('sk-1', 'auto', null));
   assert.equal(acc.id, 'acc_sooner');
+});
+
+test('auto mode skips account whose weekly utilization is at capacity', () => {
+  const pool = new AccountPool({
+    accounts: [
+      makeAccount('acc_wk_cool', { weeklyUtilization: 1.0, weeklyResetAt: Date.now() + 86400000 }),
+      makeAccount('acc_warm', { utilization: 0.1 }),
+    ],
+    terminals: [],
+  });
+  const acc = pool.selectAccount(makeTerminal('sk-1', 'auto', 'acc_wk_cool'));
+  assert.equal(acc.id, 'acc_warm');
+});
+
+test('auto mode skips account whose weekly.status is "blocked"', () => {
+  const pool = new AccountPool({
+    accounts: [
+      makeAccount('acc_wk_blocked', { weeklyStatus: 'blocked', weeklyResetAt: Date.now() + 86400000 }),
+      makeAccount('acc_warm', { utilization: 0.2 }),
+    ],
+    terminals: [],
+  });
+  const acc = pool.selectAccount(makeTerminal('sk-1', 'auto', null));
+  assert.equal(acc.id, 'acc_warm');
 });
 
 test('selectFallback prefers a warm account over a cooling one', () => {

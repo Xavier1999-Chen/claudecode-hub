@@ -174,18 +174,23 @@ export class AccountPool {
   }
 
   /**
-   * An account is "cooling" when Anthropic has told us (directly via the
-   * status header, or indirectly via utilization >= 100%) that further
-   * requests will be rejected until resetAt. Once resetAt has passed we
-   * treat the account as usable again so the next request can refresh
-   * the in-memory state from fresh response headers.
+   * An account is "cooling" when any rate-limit window (5h or weekly) is
+   * currently exhausted — Anthropic told us directly via the status header,
+   * or indirectly via utilization >= 100% with the reset time still in the
+   * future. Once the reset time has passed we treat that window as usable
+   * again so the next request can refresh in-memory state from fresh
+   * response headers.
    */
   #isCooling(acc) {
-    const w5h = acc.rateLimit?.window5h;
-    if (!w5h) return false;
-    if (w5h.status === 'blocked') return true;
-    const atCap = typeof w5h.utilization === 'number' && w5h.utilization >= 1.0;
-    const withinResetWindow = w5h.resetAt != null && w5h.resetAt > Date.now();
+    return this.#windowCooling(acc.rateLimit?.window5h)
+      || this.#windowCooling(acc.rateLimit?.weekly);
+  }
+
+  #windowCooling(w) {
+    if (!w) return false;
+    if (w.status === 'blocked') return true;
+    const atCap = typeof w.utilization === 'number' && w.utilization >= 1.0;
+    const withinResetWindow = w.resetAt != null && w.resetAt > Date.now();
     return atCap && withinResetWindow;
   }
 
@@ -198,10 +203,26 @@ export class AccountPool {
     })[0];
   }
 
+  /**
+   * Among a set of cooling accounts, pick the one whose nearest cooling
+   * window resets soonest — best-case optimistic retry ordering for the
+   * graceful-degrade fallback tier. Not perfect when both windows of an
+   * account are cooling (the soonest of the two may still leave the other
+   * blocked), but the alternative is hard-503 and the request will retry
+   * through the normal path after the next probe refreshes state.
+   */
   #soonestReset(accounts) {
+    const nextCoolingReset = (acc) => {
+      const resets = [];
+      const w5h = acc.rateLimit?.window5h;
+      const wk = acc.rateLimit?.weekly;
+      if (this.#windowCooling(w5h)) resets.push(w5h.resetAt);
+      if (this.#windowCooling(wk)) resets.push(wk.resetAt);
+      return resets.length ? Math.min(...resets) : Infinity;
+    };
     return [...accounts].sort((a, b) => {
-      const rA = a.rateLimit?.window5h?.resetAt ?? Infinity;
-      const rB = b.rateLimit?.window5h?.resetAt ?? Infinity;
+      const rA = nextCoolingReset(a);
+      const rB = nextCoolingReset(b);
       if (rA !== rB) return rA - rB;
       return a.addedAt - b.addedAt;
     })[0];
