@@ -65,18 +65,19 @@ export class AccountPool {
 
   /**
    * Pick the least-used account excluding the given set of account IDs.
+   * Prefers warm (non-cooling) accounts; falls back to cooling accounts
+   * (soonest resetAt first) when no warm candidate is available.
    * Returns null if no alternative is available.
    * @param {Set<string>} excludeIds
    */
   selectFallback(excludeIds) {
-    const candidates = this.#accounts
-      .filter(a => !excludeIds.has(a.id) && a.status !== 'exhausted' && this.#ensureCB(a.id).canRequest())
-      .sort((a, b) => {
-        const uA = a.rateLimit?.window5h?.utilization ?? 0;
-        const uB = b.rateLimit?.window5h?.utilization ?? 0;
-        return uA !== uB ? uA - uB : a.addedAt - b.addedAt;
-      });
-    return candidates[0] ?? null;
+    const usable = this.#accounts
+      .filter(a => !excludeIds.has(a.id) && a.status !== 'exhausted' && this.#ensureCB(a.id).canRequest());
+    const warm = usable.filter(a => !this.#isCooling(a));
+    if (warm.length) return this.#leastUtilized(warm);
+    const cooling = usable.filter(a => this.#isCooling(a));
+    if (cooling.length) return this.#soonestReset(cooling);
+    return null;
   }
 
   /**
@@ -152,22 +153,77 @@ export class AccountPool {
   }
 
   #pickAuto(preferredId = null) {
-    const available = this.#accounts
+    const usable = this.#accounts
       .filter(a => a.status !== 'exhausted' && this.#ensureCB(a.id).canRequest());
-    if (available.length === 0) throw new Error('503: no available accounts');
+    if (usable.length === 0) throw new Error('503: no available accounts');
 
-    // Prefer the current account if it's still available — stay sticky until exhausted.
-    // This prevents switching accounts immediately when a terminal enters auto mode.
+    const warm = usable.filter(a => !this.#isCooling(a));
+
+    // Prefer the current account only while it's warm — stickiness must not
+    // pin an auto-mode terminal to a cooling account.
     if (preferredId) {
-      const preferred = available.find(a => a.id === preferredId);
+      const preferred = warm.find(a => a.id === preferredId);
       if (preferred) return preferred;
     }
 
-    // Preferred is unavailable (exhausted / circuit-broken) — pick least loaded
-    return available.sort((a, b) => {
+    if (warm.length) return this.#leastUtilized(warm);
+
+    // Every usable account is cooling. Graceful degrade: try the one that
+    // resets soonest so the caller waits the least.
+    return this.#soonestReset(usable);
+  }
+
+  /**
+   * An account is "cooling" when any rate-limit window (5h or weekly) is
+   * currently exhausted — Anthropic told us directly via the status header,
+   * or indirectly via utilization >= 100% with the reset time still in the
+   * future. Once the reset time has passed we treat that window as usable
+   * again so the next request can refresh in-memory state from fresh
+   * response headers.
+   */
+  #isCooling(acc) {
+    return this.#windowCooling(acc.rateLimit?.window5h)
+      || this.#windowCooling(acc.rateLimit?.weekly);
+  }
+
+  #windowCooling(w) {
+    if (!w) return false;
+    if (w.status === 'blocked') return true;
+    const atCap = typeof w.utilization === 'number' && w.utilization >= 1.0;
+    const withinResetWindow = w.resetAt != null && w.resetAt > Date.now();
+    return atCap && withinResetWindow;
+  }
+
+  #leastUtilized(accounts) {
+    return [...accounts].sort((a, b) => {
       const uA = a.rateLimit?.window5h?.utilization ?? 0;
       const uB = b.rateLimit?.window5h?.utilization ?? 0;
       if (uA !== uB) return uA - uB;
+      return a.addedAt - b.addedAt;
+    })[0];
+  }
+
+  /**
+   * Among a set of cooling accounts, pick the one whose nearest cooling
+   * window resets soonest — best-case optimistic retry ordering for the
+   * graceful-degrade fallback tier. Not perfect when both windows of an
+   * account are cooling (the soonest of the two may still leave the other
+   * blocked), but the alternative is hard-503 and the request will retry
+   * through the normal path after the next probe refreshes state.
+   */
+  #soonestReset(accounts) {
+    const nextCoolingReset = (acc) => {
+      const resets = [];
+      const w5h = acc.rateLimit?.window5h;
+      const wk = acc.rateLimit?.weekly;
+      if (this.#windowCooling(w5h)) resets.push(w5h.resetAt);
+      if (this.#windowCooling(wk)) resets.push(wk.resetAt);
+      return resets.length ? Math.min(...resets) : Infinity;
+    };
+    return [...accounts].sort((a, b) => {
+      const rA = nextCoolingReset(a);
+      const rB = nextCoolingReset(b);
+      if (rA !== rB) return rA - rB;
       return a.addedAt - b.addedAt;
     })[0];
   }
