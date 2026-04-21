@@ -83,6 +83,7 @@ body {
 .plan-badge { font-size: 12px; font-weight: 700; padding: 2px 8px; border-radius: 4px; }
 .badge-pro { background: #E87040; color: white; }
 .badge-max { background: #D97706; color: white; }
+.badge-free { background: #a8a29e; color: white; }
 .status-dot { width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; }
 .dot-green { background: #22c55e; }
 .dot-red { background: #ef4444; }

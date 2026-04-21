@@ -117,6 +117,33 @@ export class AccountPool {
   }
 
   /**
+   * Mark an account as permanently unavailable (e.g. its OAuth authorization
+   * was revoked at the Anthropic side — status/plan downgraded, org banned).
+   *
+   * The in-memory status change is the critical path: it makes #pickAuto /
+   * selectFallback exclude this account on the very next selection. Disk
+   * persistence is best-effort via a read-patch-write so we do not overwrite
+   * fresher rate-limit state in other accounts that only lives in memory.
+   * On disk write failure, admin's next syncRateLimit probe will pick the
+   * same 403 signal up and persist the exhausted status there.
+   */
+  async markUnauthorized(accountId) {
+    const acc = this.#accounts.find(a => a.id === accountId);
+    if (!acc) return;
+    acc.status = 'exhausted';
+    acc.plan = 'free';   // OAuth revocation typically means the org lost its paid plan
+    try {
+      const disk = await this.#configStore.readAccounts();
+      const onDisk = disk.find(a => a.id === accountId);
+      if (onDisk && (onDisk.status !== 'exhausted' || onDisk.plan !== 'free')) {
+        onDisk.status = 'exhausted';
+        onDisk.plan = 'free';
+        await this.#configStore.writeAccounts(disk);
+      }
+    } catch { /* non-fatal: admin will persist on next probe */ }
+  }
+
+  /**
    * Ensure accessToken is fresh; refreshes in-place if needed.
    * Returns the (possibly updated) account.
    */

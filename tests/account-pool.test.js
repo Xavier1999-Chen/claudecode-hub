@@ -162,6 +162,29 @@ test('selectFallback prefers a warm account over a cooling one', () => {
   assert.equal(fallback?.id, 'acc_warm');
 });
 
+test('markUnauthorized sets status=exhausted and plan=free in memory', async () => {
+  const mockStore = {
+    readAccounts: async () => [],   // disk has no match → write path silent no-op
+    writeAccounts: async () => {},
+  };
+  const pool = new AccountPool({
+    accounts: [makeAccount('acc_1'), makeAccount('acc_2')],
+    terminals: [],
+    configStore: mockStore,
+  });
+  await pool.markUnauthorized('acc_1');
+  assert.equal(pool.getAccount('acc_1').status, 'exhausted');
+  assert.equal(pool.getAccount('acc_1').plan, 'free');
+  assert.equal(pool.getAccount('acc_2').status, 'idle'); // other account untouched
+  assert.equal(pool.getAccount('acc_2').plan, 'pro');
+});
+
+test('markUnauthorized for unknown id is a no-op (does not throw)', async () => {
+  const pool = new AccountPool({ accounts: [makeAccount('acc_1')], terminals: [] });
+  await pool.markUnauthorized('acc_nonexistent');
+  assert.equal(pool.getAccount('acc_1').status, 'idle');
+});
+
 test('updateRateLimit updates account in memory', () => {
   const acc = makeAccount('acc_1');
   const pool = new AccountPool({ accounts: [acc], terminals: [] });

@@ -10,6 +10,7 @@ import { generateName } from '../shared/names.js';
 import { createLoginSession, importCredentials, startTmuxLogin, submitAuthCode, waitForCredentials } from './oauth-login.js';
 import { requireAuth, requireApproved, requireAdmin } from './auth.js';
 import { isAccountCooling, reassignCoolingTerminals } from './reassignment.js';
+import { isOAuthRevoked } from '../proxy/permission-guard.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PORT = process.env.ADMIN_PORT ?? 3182;
@@ -66,10 +67,16 @@ app.post('/api/accounts/:id/sync-usage', requireAdmin, async (req, res) => {
   const acc = accounts.find(a => a.id === req.params.id);
   if (!acc) return res.status(404).json({ error: 'not_found' });
   try {
+    const wasExhausted = acc.status === 'exhausted';
     await syncRateLimit(acc);
     await configStore.writeAccounts(accounts);
     if (isAccountCooling(acc)) {
       await reassignCoolingTerminals(acc.id, accounts, ['auto'], configStore);
+    } else if (!wasExhausted && acc.status === 'exhausted') {
+      // syncRateLimit just flipped status to exhausted (OAuth revoked);
+      // move every terminal off this account — manual included, since the
+      // account is now permanently unusable.
+      await reassignCoolingTerminals(acc.id, accounts, null, configStore);
     }
     res.json(sanitiseAccount(acc));
   } catch (err) {
@@ -316,6 +323,20 @@ async function syncRateLimit(acc) {
       ...(agent && { agent }),
     });
 
+    // Detect permanent OAuth revocation — Anthropic returns 403 permission_error
+    // when the org's OAuth access has been revoked (plan downgraded, org banned).
+    // Mark the account exhausted so UI/selection treats it as permanently offline;
+    // the sync-usage endpoints notice the status transition and migrate terminals.
+    if (res.status === 403) {
+      const body = await res.text();
+      if (isOAuthRevoked(res.status, body)) {
+        console.warn(`[syncRateLimit] 403 permission_error on ${acc.email ?? acc.id}, marking exhausted`);
+        acc.status = 'exhausted';
+        acc.plan = 'free';
+      }
+      return;
+    }
+
     const h5hUtil  = parseFloat(res.headers.get('anthropic-ratelimit-unified-5h-utilization'));
     const h5hReset = parseInt(res.headers.get('anthropic-ratelimit-unified-5h-reset'), 10);
     const h5hStatus = res.headers.get('anthropic-ratelimit-unified-5h-status');
@@ -421,12 +442,20 @@ async function reassignTerminals(removedAccountId, availableAccounts, modes) {
 app.post('/api/sync-usage-all', requireAdmin, async (_req, res) => {
   try {
     const accounts = await configStore.readAccounts();
-    for (const acc of accounts) await syncRateLimit(acc);
-    await configStore.writeAccounts(accounts);
+    const coolingAccs = [];
+    const revokedAccs = [];
     for (const acc of accounts) {
-      if (isAccountCooling(acc)) {
-        await reassignCoolingTerminals(acc.id, accounts, ['auto'], configStore);
-      }
+      const wasExhausted = acc.status === 'exhausted';
+      await syncRateLimit(acc);
+      if (isAccountCooling(acc)) coolingAccs.push(acc);
+      else if (!wasExhausted && acc.status === 'exhausted') revokedAccs.push(acc);
+    }
+    await configStore.writeAccounts(accounts);
+    for (const acc of coolingAccs) {
+      await reassignCoolingTerminals(acc.id, accounts, ['auto'], configStore);
+    }
+    for (const acc of revokedAccs) {
+      await reassignCoolingTerminals(acc.id, accounts, null, configStore);
     }
     res.json(accounts.map(sanitiseAccount));
   } catch (err) {
