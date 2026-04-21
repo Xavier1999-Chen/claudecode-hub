@@ -65,18 +65,19 @@ export class AccountPool {
 
   /**
    * Pick the least-used account excluding the given set of account IDs.
+   * Prefers warm (non-cooling) accounts; falls back to cooling accounts
+   * (soonest resetAt first) when no warm candidate is available.
    * Returns null if no alternative is available.
    * @param {Set<string>} excludeIds
    */
   selectFallback(excludeIds) {
-    const candidates = this.#accounts
-      .filter(a => !excludeIds.has(a.id) && a.status !== 'exhausted' && this.#ensureCB(a.id).canRequest())
-      .sort((a, b) => {
-        const uA = a.rateLimit?.window5h?.utilization ?? 0;
-        const uB = b.rateLimit?.window5h?.utilization ?? 0;
-        return uA !== uB ? uA - uB : a.addedAt - b.addedAt;
-      });
-    return candidates[0] ?? null;
+    const usable = this.#accounts
+      .filter(a => !excludeIds.has(a.id) && a.status !== 'exhausted' && this.#ensureCB(a.id).canRequest());
+    const warm = usable.filter(a => !this.#isCooling(a));
+    if (warm.length) return this.#leastUtilized(warm);
+    const cooling = usable.filter(a => this.#isCooling(a));
+    if (cooling.length) return this.#soonestReset(cooling);
+    return null;
   }
 
   /**
@@ -152,22 +153,56 @@ export class AccountPool {
   }
 
   #pickAuto(preferredId = null) {
-    const available = this.#accounts
+    const usable = this.#accounts
       .filter(a => a.status !== 'exhausted' && this.#ensureCB(a.id).canRequest());
-    if (available.length === 0) throw new Error('503: no available accounts');
+    if (usable.length === 0) throw new Error('503: no available accounts');
 
-    // Prefer the current account if it's still available — stay sticky until exhausted.
-    // This prevents switching accounts immediately when a terminal enters auto mode.
+    const warm = usable.filter(a => !this.#isCooling(a));
+
+    // Prefer the current account only while it's warm — stickiness must not
+    // pin an auto-mode terminal to a cooling account.
     if (preferredId) {
-      const preferred = available.find(a => a.id === preferredId);
+      const preferred = warm.find(a => a.id === preferredId);
       if (preferred) return preferred;
     }
 
-    // Preferred is unavailable (exhausted / circuit-broken) — pick least loaded
-    return available.sort((a, b) => {
+    if (warm.length) return this.#leastUtilized(warm);
+
+    // Every usable account is cooling. Graceful degrade: try the one that
+    // resets soonest so the caller waits the least.
+    return this.#soonestReset(usable);
+  }
+
+  /**
+   * An account is "cooling" when Anthropic has told us (directly via the
+   * status header, or indirectly via utilization >= 100%) that further
+   * requests will be rejected until resetAt. Once resetAt has passed we
+   * treat the account as usable again so the next request can refresh
+   * the in-memory state from fresh response headers.
+   */
+  #isCooling(acc) {
+    const w5h = acc.rateLimit?.window5h;
+    if (!w5h) return false;
+    if (w5h.status === 'blocked') return true;
+    const atCap = typeof w5h.utilization === 'number' && w5h.utilization >= 1.0;
+    const withinResetWindow = w5h.resetAt != null && w5h.resetAt > Date.now();
+    return atCap && withinResetWindow;
+  }
+
+  #leastUtilized(accounts) {
+    return [...accounts].sort((a, b) => {
       const uA = a.rateLimit?.window5h?.utilization ?? 0;
       const uB = b.rateLimit?.window5h?.utilization ?? 0;
       if (uA !== uB) return uA - uB;
+      return a.addedAt - b.addedAt;
+    })[0];
+  }
+
+  #soonestReset(accounts) {
+    return [...accounts].sort((a, b) => {
+      const rA = a.rateLimit?.window5h?.resetAt ?? Infinity;
+      const rB = b.rateLimit?.window5h?.resetAt ?? Infinity;
+      if (rA !== rB) return rA - rB;
       return a.addedAt - b.addedAt;
     })[0];
   }

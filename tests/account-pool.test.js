@@ -11,10 +11,16 @@ function makeAccount(id, opts = {}) {
     status: opts.status ?? 'idle',
     cooldownUntil: opts.cooldownUntil ?? null,
     rateLimit: {
-      window5h: { used: opts.used5h ?? 0, limit: 100000, resetAt: Date.now() + 3600000 },
+      window5h: {
+        used: opts.used5h ?? 0,
+        limit: 100000,
+        resetAt: opts.w5hResetAt ?? (Date.now() + 3600000),
+        utilization: opts.utilization,
+        status: opts.w5hStatus ?? 'allowed',
+      },
       weeklyTokens: { used: 0, limit: 1000000, resetAt: Date.now() + 86400000 },
     },
-    addedAt: Date.now(),
+    addedAt: opts.addedAt ?? Date.now(),
   };
 }
 
@@ -66,6 +72,65 @@ test('auto mode throws 503 when all accounts exhausted', () => {
     () => pool.selectAccount(makeTerminal('sk-1', 'auto', null)),
     { message: /503/ }
   );
+});
+
+test('auto mode skips cooling preferred account (utilization >= 1.0) even when sticky', () => {
+  const pool = new AccountPool({
+    accounts: [
+      makeAccount('acc_cool', { utilization: 1.0, w5hResetAt: Date.now() + 1800000 }),
+      makeAccount('acc_warm', { utilization: 0.2 }),
+    ],
+    terminals: [],
+  });
+  const acc = pool.selectAccount(makeTerminal('sk-1', 'auto', 'acc_cool'));
+  assert.equal(acc.id, 'acc_warm');
+});
+
+test('auto mode skips account whose window5h.status is "blocked"', () => {
+  const pool = new AccountPool({
+    accounts: [
+      makeAccount('acc_blocked', { w5hStatus: 'blocked', w5hResetAt: Date.now() + 1800000 }),
+      makeAccount('acc_warm', { utilization: 0.3 }),
+    ],
+    terminals: [],
+  });
+  const acc = pool.selectAccount(makeTerminal('sk-1', 'auto', null));
+  assert.equal(acc.id, 'acc_warm');
+});
+
+test('auto mode treats a cooling account as warm once resetAt has passed (self-heal)', () => {
+  const pool = new AccountPool({
+    accounts: [
+      makeAccount('acc_past', { utilization: 1.0, w5hResetAt: Date.now() - 60000 }),
+    ],
+    terminals: [],
+  });
+  const acc = pool.selectAccount(makeTerminal('sk-1', 'auto', null));
+  assert.equal(acc.id, 'acc_past');
+});
+
+test('auto mode falls back to soonest-resetAt cooling account when every account is cooling', () => {
+  const pool = new AccountPool({
+    accounts: [
+      makeAccount('acc_later', { utilization: 1.0, w5hResetAt: Date.now() + 3600000 }),
+      makeAccount('acc_sooner', { utilization: 1.0, w5hResetAt: Date.now() + 600000 }),
+    ],
+    terminals: [],
+  });
+  const acc = pool.selectAccount(makeTerminal('sk-1', 'auto', null));
+  assert.equal(acc.id, 'acc_sooner');
+});
+
+test('selectFallback prefers a warm account over a cooling one', () => {
+  const pool = new AccountPool({
+    accounts: [
+      makeAccount('acc_cool', { utilization: 1.0, w5hResetAt: Date.now() + 1800000 }),
+      makeAccount('acc_warm', { utilization: 0.1 }),
+    ],
+    terminals: [],
+  });
+  const fallback = pool.selectFallback(new Set());
+  assert.equal(fallback?.id, 'acc_warm');
 });
 
 test('updateRateLimit updates account in memory', () => {
