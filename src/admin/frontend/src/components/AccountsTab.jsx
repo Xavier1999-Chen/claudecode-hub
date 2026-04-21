@@ -6,10 +6,10 @@ function pct(used, limit) { if (!limit) return 0; return Math.min(100, Math.roun
 function fmtExpiry(ts) {
   if (!ts) return null
   const diff = ts - Date.now()
-  if (diff < 0) return '已过期'
+  if (diff < 0) return '已过期请重新登录'
   const h = Math.floor(diff / 3600000)
   const m = Math.floor((diff % 3600000) / 60000)
-  return h > 0 ? `${h}h ${m}m 后过期` : `${m}m 后过期`
+  return h > 0 ? `${h}h ${m}m 后自动刷新` : `${m}m 后自动刷新`
 }
 
 function fmtReset(ts) {
@@ -301,7 +301,8 @@ export default function AccountsTab({ accounts, terminals, onRefresh, onNewTermi
           const actionsOpen = expandedCard === acc.id
           const displayName = acc.nickname || acc.email
           const expiry = fmtExpiry(acc.tokenExpiresAt)
-          const resetLabel = fmtReset(acc.rateLimit?.window5h?.resetAt)
+          const reset5h = fmtReset(acc.rateLimit?.window5h?.resetAt)
+          const resetWeek = fmtReset(acc.rateLimit?.weekly?.resetAt)
 
           return (
             <div
@@ -357,10 +358,9 @@ export default function AccountsTab({ accounts, terminals, onRefresh, onNewTermi
                     {mounted && <div className="mounted-label">✓ 已挂载</div>}
                     {rateLimited && <div className="token-expiry rate-limited-label">⏸ 冷却中</div>}
                     {expiry && <div className="token-expiry">Token {expiry}</div>}
-                    {resetLabel && <div className="token-expiry">5h {resetLabel}</div>}
                     <div className="usage-row">
                       <div className="usage-meta">
-                        <span>5小时窗口</span>
+                        <span>5小时窗口{reset5h && <span className="usage-reset"> · {reset5h}</span>}</span>
                         <span className="usage-pct">{p5h !== null ? `${p5h}%` : '—'}</span>
                       </div>
                       {p5h !== null ? (
@@ -373,7 +373,7 @@ export default function AccountsTab({ accounts, terminals, onRefresh, onNewTermi
                     </div>
                     <div className="usage-row">
                       <div className="usage-meta">
-                        <span>本周</span>
+                        <span>本周{resetWeek && <span className="usage-reset"> · {resetWeek}</span>}</span>
                         <span className="usage-pct">{pw !== null ? `${pw}%` : '—'}</span>
                       </div>
                       {pw !== null ? (
