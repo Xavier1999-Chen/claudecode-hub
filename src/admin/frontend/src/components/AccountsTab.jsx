@@ -117,8 +117,12 @@ export default function AccountsTab({ accounts, terminals, onRefresh, onNewTermi
   }
 
   function isRateLimited(acc) {
-    const w5h = acc.rateLimit?.window5h
-    return w5h?.status === 'blocked' || (w5h?.utilization != null && w5h.utilization >= 1.0)
+    return isWindowRateLimited(acc.rateLimit?.window5h) || isWindowRateLimited(acc.rateLimit?.weekly)
+  }
+
+  function isWindowRateLimited(w) {
+    if (!w) return false
+    return w.status === 'blocked' || (w.utilization != null && w.utilization >= 1.0)
   }
 
   function statusDot(acc) {
