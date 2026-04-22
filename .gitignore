@@ -10,4 +10,9 @@ CLAUDE.md
 # Tool/session artifacts
 .superpowers/
 .worktrees/
-docs/
+/docs/
+
+# Docs site build artifacts
+assets/docs/node_modules/
+assets/docs/.vitepress/dist/
+assets/docs/.vitepress/cache/

@@ -1,0 +1,77 @@
+/* Hub brand colors: #E87040 primary, #1C1917 nav, #F4F1EB background */
+
+:root {
+  --vp-c-brand-1: #E87040;
+  --vp-c-brand-2: #cc5c2e;
+  --vp-c-brand-3: #f2956d;
+  --vp-c-brand-soft: rgba(232, 112, 64, 0.14);
+
+  --vp-c-bg: #F4F1EB;
+  --vp-c-bg-soft: #EDE9E2;
+  --vp-c-bg-mute: #E4DFD5;
+
+  --vp-button-brand-bg: #E87040;
+  --vp-button-brand-hover-bg: #cc5c2e;
+  --vp-button-brand-active-bg: #b8522a;
+}
+
+/* Dark mode keeps the default, just adjust brand */
+.dark {
+  --vp-c-brand-1: #f2956d;
+  --vp-c-brand-2: #E87040;
+  --vp-c-brand-3: #cc5c2e;
+  --vp-c-brand-soft: rgba(232, 112, 64, 0.16);
+}
+
+/* Nav bar: dark background consistent with hub admin */
+.VPNav,
+.VPNavBar {
+  background-color: #1C1917 !important;
+  border-bottom: 1px solid #2d2927 !important;
+}
+
+.VPNavBar .title {
+  color: #F4F1EB !important;
+}
+
+.VPNavBarTitle .title {
+  color: #F4F1EB !important;
+}
+
+.VPNavBarMenu .VPNavBarMenuLink,
+.VPNavBarMenu .VPNavBarMenuGroup .button {
+  color: #d6d0c8 !important;
+}
+
+.VPNavBarMenu .VPNavBarMenuLink:hover,
+.VPNavBarMenu .VPNavBarMenuGroup .button:hover {
+  color: #E87040 !important;
+}
+
+.VPNavBarExtra .VPSocialLink,
+.VPNavBarAppearance button,
+.VPNavBarSearch button {
+  color: #d6d0c8 !important;
+}
+
+/* Sidebar active item */
+.VPSidebarItem.is-active > .item .link .text {
+  color: #E87040 !important;
+}
+
+/* Home hero button */
+.VPButton.medium.brand {
+  background-color: #E87040 !important;
+  border-color: #E87040 !important;
+}
+
+.VPButton.medium.brand:hover {
+  background-color: #cc5c2e !important;
+  border-color: #cc5c2e !important;
+}
+
+/* Code block slight warmth */
+:root {
+  --vp-code-bg: #eae6df;
+  --vp-code-color: #1C1917;
+}
