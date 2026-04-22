@@ -57,16 +57,21 @@ export function createUsageTapper({ accountId, terminalId, model, logsDir = DEFA
 
   const tapper = new Transform({
     async transform(chunk, _enc, cb) {
-      console.log(`[tapper] transform len=${chunk.length} accountId=${accountId}`);
       buffer += chunk.toString();
       const lines = buffer.split('\n');
       buffer = lines.pop();
+      if (lines.length > 0) console.log(`[tapper] processing ${lines.length} lines, buffer remainder=${buffer.length} chars`);
 
       for (const line of lines) {
+        if (line.startsWith('data: ')) {
+          console.log(`[tapper] data line (${line.length} chars): ${line.slice(0, 120)}`);
+        } else if (line.startsWith('event:')) {
+          console.log(`[tapper] SSE event field: ${line}`);
+        }
         if (!line.startsWith('data: ')) continue;
         try {
           const event = JSON.parse(line.slice(6));
-          console.log(`[tapper] event type=${event.type}`);
+          console.log(`[tapper] parsed event type=${event.type}`);
           if (event.type === 'message_start' && event.message?.usage) {
             inTok += event.message.usage.input_tokens ?? 0;
           }
