@@ -27,12 +27,14 @@ function costPerToken(model) {
  *    then writes one usage record per request to usage.jsonl.
  */
 export function createUsageTapper({ accountId, terminalId, model, logsDir = DEFAULT_LOGS_DIR }) {
+  console.log(`[tapper] created for accountId=${accountId} terminalId=${terminalId?.slice(0,20)} model=${model}`);
   let buffer = '';
   let inTok = 0;
   let outTok = 0;
   let written = false;
 
   const writeUsage = async () => {
+    console.log(`[tapper] writeUsage called: written=${written} inTok=${inTok} outTok=${outTok}`);
     if (written || (inTok === 0 && outTok === 0)) return;
     written = true;
     try {
@@ -55,6 +57,7 @@ export function createUsageTapper({ accountId, terminalId, model, logsDir = DEFA
 
   const tapper = new Transform({
     async transform(chunk, _enc, cb) {
+      console.log(`[tapper] transform len=${chunk.length} accountId=${accountId}`);
       buffer += chunk.toString();
       const lines = buffer.split('\n');
       buffer = lines.pop();
@@ -63,6 +66,7 @@ export function createUsageTapper({ accountId, terminalId, model, logsDir = DEFA
         if (!line.startsWith('data: ')) continue;
         try {
           const event = JSON.parse(line.slice(6));
+          console.log(`[tapper] event type=${event.type}`);
           if (event.type === 'message_start' && event.message?.usage) {
             inTok += event.message.usage.input_tokens ?? 0;
           }
@@ -76,12 +80,16 @@ export function createUsageTapper({ accountId, terminalId, model, logsDir = DEFA
       cb();
     },
     async flush(cb) {
+      console.log(`[tapper] flush inTok=${inTok} outTok=${outTok}`);
       await writeUsage();
       cb();
     },
   });
 
-  tapper.on('close', () => writeUsage());
+  tapper.on('close', () => {
+    console.log(`[tapper] close inTok=${inTok} outTok=${outTok} written=${written}`);
+    writeUsage();
+  });
 
   return tapper;
 }
