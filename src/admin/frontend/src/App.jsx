@@ -4,6 +4,7 @@ import Nav from './components/Nav.jsx'
 import AccountsTab from './components/AccountsTab.jsx'
 import TerminalsTab from './components/TerminalsTab.jsx'
 import UsageTab from './components/UsageTab.jsx'
+import GuideTab from './components/GuideTab.jsx'
 import OAuthModal from './components/OAuthModal.jsx'
 import TerminalModal from './components/TerminalModal.jsx'
 import LoginPage from './components/LoginPage.jsx'
@@ -192,6 +193,8 @@ export default function App() {
       {tab === 'usage' && (
         <UsageTab accounts={accounts} terminals={terminals} />
       )}
+
+      {tab === 'guide' && <GuideTab />}
 
       {showOAuth && (
         <OAuthModal onClose={() => setShowOAuth(false)} onSuccess={handleOAuthSuccess} />
