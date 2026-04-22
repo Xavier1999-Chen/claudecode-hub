@@ -46,6 +46,7 @@ const HOP_BY_HOP = new Set([
   'connection', 'keep-alive', 'proxy-authenticate', 'proxy-authorization',
   'te', 'trailers', 'transfer-encoding', 'upgrade',
   'host', 'authorization', 'x-api-key', 'content-length',
+  'accept-encoding',
 ]);
 
 /**
