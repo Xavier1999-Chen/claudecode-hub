@@ -24,82 +24,21 @@ function fmtReset(ts) {
 }
 
 // Relay card body with inline-editable model mapping
-function RelayCardBody({ acc, mounted, terms, isAdmin, onRefresh }) {
-  const [editing, setEditing] = useState(false)
-  const [mapOpus, setMapOpus] = useState(acc.modelMap?.opus ?? '')
-  const [mapSonnet, setMapSonnet] = useState(acc.modelMap?.sonnet ?? '')
-  const [mapHaiku, setMapHaiku] = useState(acc.modelMap?.haiku ?? '')
-  const [saving, setSaving] = useState(false)
-
-  function startEdit(e) {
-    e.stopPropagation()
-    setMapOpus(acc.modelMap?.opus ?? '')
-    setMapSonnet(acc.modelMap?.sonnet ?? '')
-    setMapHaiku(acc.modelMap?.haiku ?? '')
-    setEditing(true)
-  }
-
-  async function save(e) {
-    e.stopPropagation()
-    setSaving(true)
-    try {
-      const modelMap = {}
-      if (mapOpus.trim()) modelMap.opus = mapOpus.trim()
-      if (mapSonnet.trim()) modelMap.sonnet = mapSonnet.trim()
-      if (mapHaiku.trim()) modelMap.haiku = mapHaiku.trim()
-      await updateRelayModelMap(acc.id, modelMap)
-      setEditing(false)
-      await onRefresh()
-    } finally { setSaving(false) }
-  }
-
+function RelayCardBody({ acc, mounted, terms }) {
   const hasMap = acc.modelMap && Object.keys(acc.modelMap).length > 0
 
   return (
     <>
-      <div className="card-body" onClick={e => editing && e.stopPropagation()}>
+      <div className="card-body">
         {mounted && <div className="mounted-label">✓ 已挂载</div>}
-        {editing ? (
-          <div className="relay-map-edit" style={{ fontSize: 12 }}>
-            <div className="relay-map-row">
-              <span className="relay-map-label">Opus →</span>
-              <input className="inline-edit" value={mapOpus} onChange={e => setMapOpus(e.target.value)}
-                placeholder="留空则透传" style={{ flex: 1 }} />
-            </div>
-            <div className="relay-map-row">
-              <span className="relay-map-label">Sonnet →</span>
-              <input className="inline-edit" value={mapSonnet} onChange={e => setMapSonnet(e.target.value)}
-                placeholder="留空则透传" style={{ flex: 1 }} />
-            </div>
-            <div className="relay-map-row">
-              <span className="relay-map-label">Haiku →</span>
-              <input className="inline-edit" value={mapHaiku} onChange={e => setMapHaiku(e.target.value)}
-                placeholder="留空则透传" style={{ flex: 1 }} />
-            </div>
-            <div style={{ display: 'flex', gap: 6, marginTop: 6 }}>
-              <button className="btn btn-primary btn-sm" onClick={save} disabled={saving}>
-                {saving ? '…' : '保存'}
-              </button>
-              <button className="btn btn-ghost btn-sm" onClick={e => { e.stopPropagation(); setEditing(false) }}>取消</button>
-            </div>
+        {hasMap ? (
+          <div className="relay-modelmap" style={{ fontSize: 12, color: '#57534e', lineHeight: 1.6 }}>
+            {acc.modelMap.opus && <div>Opus → <code>{acc.modelMap.opus}</code></div>}
+            {acc.modelMap.sonnet && <div>Sonnet → <code>{acc.modelMap.sonnet}</code></div>}
+            {acc.modelMap.haiku && <div>Haiku → <code>{acc.modelMap.haiku}</code></div>}
           </div>
         ) : (
-          <>
-            {hasMap ? (
-              <div className="relay-modelmap" style={{ fontSize: 12, color: '#57534e', lineHeight: 1.6 }}>
-                {acc.modelMap.opus && <div>Opus → <code>{acc.modelMap.opus}</code></div>}
-                {acc.modelMap.sonnet && <div>Sonnet → <code>{acc.modelMap.sonnet}</code></div>}
-                {acc.modelMap.haiku && <div>Haiku → <code>{acc.modelMap.haiku}</code></div>}
-              </div>
-            ) : (
-              <div style={{ fontSize: 12, color: '#a8a29e' }}>无模型映射 · 原样透传</div>
-            )}
-            {isAdmin && (
-              <button className="btn btn-ghost btn-sm" style={{ marginTop: 6, fontSize: 11 }} onClick={startEdit}>
-                编辑映射
-              </button>
-            )}
-          </>
+          <div style={{ fontSize: 12, color: '#a8a29e' }}>无模型映射 · 原样透传</div>
         )}
       </div>
       {terms.length > 0 && (
@@ -116,10 +55,24 @@ function AccountActions({ acc, onAction, onClose }) {
   const [renaming, setRenaming] = useState(false)
   const [newName, setNewName] = useState(acc.nickname || acc.email)
   const [busy, setBusy] = useState(null)
+  const [editingMap, setEditingMap] = useState(false)
+  const [mapOpus, setMapOpus] = useState(acc.modelMap?.opus ?? '')
+  const [mapSonnet, setMapSonnet] = useState(acc.modelMap?.sonnet ?? '')
+  const [mapHaiku, setMapHaiku] = useState(acc.modelMap?.haiku ?? '')
 
   async function run(action) {
     setBusy(action)
     try { await onAction(action) } finally { setBusy(null) }
+  }
+
+  async function saveModelMap() {
+    const modelMap = {}
+    if (mapOpus.trim()) modelMap.opus = mapOpus.trim()
+    if (mapSonnet.trim()) modelMap.sonnet = mapSonnet.trim()
+    if (mapHaiku.trim()) modelMap.haiku = mapHaiku.trim()
+    setBusy('modelmap')
+    try { await onAction('modelmap:' + JSON.stringify(modelMap)) } finally { setBusy(null) }
+    setEditingMap(false)
   }
 
   const exhausted = acc.status === 'exhausted'
@@ -149,6 +102,44 @@ function AccountActions({ acc, onAction, onClose }) {
         <button className="action-btn" onClick={() => { setNewName(acc.nickname || acc.email); setRenaming(true) }}>
           ✏️ 重命名
         </button>
+      )}
+
+      {/* Model map editing — relay only */}
+      {acc.type === 'relay' && (
+        editingMap ? (
+          <div className="relay-map-edit" style={{ fontSize: 12, padding: '4px 0' }}>
+            <div className="relay-map-row">
+              <span className="relay-map-label">Opus →</span>
+              <input className="inline-edit" value={mapOpus} onChange={e => setMapOpus(e.target.value)}
+                placeholder="留空则透传" style={{ flex: 1 }} />
+            </div>
+            <div className="relay-map-row">
+              <span className="relay-map-label">Sonnet →</span>
+              <input className="inline-edit" value={mapSonnet} onChange={e => setMapSonnet(e.target.value)}
+                placeholder="留空则透传" style={{ flex: 1 }} />
+            </div>
+            <div className="relay-map-row">
+              <span className="relay-map-label">Haiku →</span>
+              <input className="inline-edit" value={mapHaiku} onChange={e => setMapHaiku(e.target.value)}
+                placeholder="留空则透传" style={{ flex: 1 }} />
+            </div>
+            <div style={{ display: 'flex', gap: 6, marginTop: 6 }}>
+              <button className="btn btn-primary btn-sm" onClick={saveModelMap} disabled={busy === 'modelmap'}>
+                {busy === 'modelmap' ? '…' : '保存'}
+              </button>
+              <button className="btn btn-ghost btn-sm" onClick={() => setEditingMap(false)}>取消</button>
+            </div>
+          </div>
+        ) : (
+          <button className="action-btn" onClick={() => {
+            setMapOpus(acc.modelMap?.opus ?? '')
+            setMapSonnet(acc.modelMap?.sonnet ?? '')
+            setMapHaiku(acc.modelMap?.haiku ?? '')
+            setEditingMap(true)
+          }}>
+            🔀 编辑模型映射
+          </button>
+        )
       )}
 
       {/* Online / Offline toggle */}
@@ -291,6 +282,8 @@ export default function AccountsTab({ accounts, terminals, onRefresh, onNewTermi
       setExpandedCard(null)
     } else if (action.startsWith('rename:')) {
       await renameAccount(acc.id, action.slice(7))
+    } else if (action.startsWith('modelmap:')) {
+      await updateRelayModelMap(acc.id, JSON.parse(action.slice(9)))
     }
     await onRefresh()
   }
@@ -455,7 +448,7 @@ export default function AccountsTab({ accounts, terminals, onRefresh, onNewTermi
                   onClose={() => setExpandedCard(null)}
                 />
               ) : isRelay ? (
-                <RelayCardBody acc={acc} mounted={mounted} terms={terms} isAdmin={isAdmin} onRefresh={onRefresh} />
+                <RelayCardBody acc={acc} mounted={mounted} terms={terms} />
               ) : (
                 <>
                   <div className="card-body">

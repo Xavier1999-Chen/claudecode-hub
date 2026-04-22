@@ -3,6 +3,7 @@ import { HttpsProxyAgent } from 'https-proxy-agent';
 import { createUsageTapper } from './usage-tracker.js';
 import { isOAuthRevoked } from './permission-guard.js';
 import { applyModelMap } from './model-map.js';
+import { stripThinkingBlocks } from './thinking-strip.js';
 
 const UPSTREAM = 'https://api.anthropic.com';
 const UPSTREAM_TIMEOUT_MS = 60_000;
@@ -70,6 +71,12 @@ export async function forwardRequest(req, res, account, terminalId, pool, triedI
   }
 
   let outBody = req.method !== 'GET' && req.method !== 'HEAD' ? req.rawBody : undefined;
+
+  // Always strip thinking blocks from historical assistant messages.
+  // Signatures in these blocks are HMACed per-account; our rotating pool
+  // means a replayed block from a prior turn will fail validation at a
+  // different upstream. See @/src/proxy/thinking-strip.js for detail.
+  if (outBody) outBody = stripThinkingBlocks(outBody);
 
   if (isRelay) {
     // Relay station: static API key, no OAuth beta, no 1M-context stripping.
