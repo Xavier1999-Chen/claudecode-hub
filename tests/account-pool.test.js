@@ -185,6 +185,53 @@ test('markUnauthorized for unknown id is a no-op (does not throw)', async () => 
   assert.equal(pool.getAccount('acc_1').status, 'idle');
 });
 
+test('auto mode distributes terminals across accounts when utilization is equal', () => {
+  const pool = new AccountPool({
+    accounts: [
+      makeAccount('acc_1', { utilization: 0 }),
+      makeAccount('acc_2', { utilization: 0 }),
+      makeAccount('acc_3', { utilization: 0 }),
+    ],
+    terminals: [],
+  });
+  pool.setTerminals([
+    makeTerminal('sk-1', 'auto', 'acc_1'),
+    makeTerminal('sk-2', 'auto', 'acc_1'),
+  ]);
+  const acc = pool.selectAccount(makeTerminal('sk-new', 'auto', null));
+  assert.notEqual(acc.id, 'acc_1', 'should pick an account with fewer terminals');
+});
+
+test('auto mode prefers fewer terminals over lower utilization', () => {
+  const pool = new AccountPool({
+    accounts: [
+      makeAccount('acc_busy', { utilization: 0.1 }),
+      makeAccount('acc_free', { utilization: 0.3 }),
+    ],
+    terminals: [],
+  });
+  pool.setTerminals([
+    makeTerminal('sk-1', 'auto', 'acc_busy'),
+    makeTerminal('sk-2', 'auto', 'acc_busy'),
+    makeTerminal('sk-3', 'auto', 'acc_busy'),
+  ]);
+  const acc = pool.selectAccount(makeTerminal('sk-new', 'auto', null));
+  assert.equal(acc.id, 'acc_free');
+});
+
+test('auto mode uses weekly utilization as tiebreaker', () => {
+  const pool = new AccountPool({
+    accounts: [
+      makeAccount('acc_wk_high', { utilization: 0.5, weeklyUtilization: 0.8 }),
+      makeAccount('acc_wk_low', { utilization: 0.5, weeklyUtilization: 0.2 }),
+    ],
+    terminals: [],
+  });
+  pool.setTerminals([]);
+  const acc = pool.selectAccount(makeTerminal('sk-new', 'auto', null));
+  assert.equal(acc.id, 'acc_wk_low');
+});
+
 test('updateRateLimit updates account in memory', () => {
   const acc = makeAccount('acc_1');
   const pool = new AccountPool({ accounts: [acc], terminals: [] });

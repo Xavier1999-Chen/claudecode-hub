@@ -6,6 +6,7 @@ import { configStore } from '../shared/config.js';
 
 export class AccountPool {
   #accounts = [];
+  #terminals = [];
   #circuitBreakers = new Map(); // accountId → CircuitBreaker
   #rateQueues = new Map();       // accountId → RateQueue
   #configStore;
@@ -39,6 +40,10 @@ export class AccountPool {
 
   getAccount(id) {
     return this.#accounts.find(a => a.id === id);
+  }
+
+  setTerminals(terminals) {
+    this.#terminals = terminals;
   }
 
   /**
@@ -222,10 +227,18 @@ export class AccountPool {
   }
 
   #leastUtilized(accounts) {
+    const autoTerminalCount = (accId) =>
+      this.#terminals.filter(t => t.mode === 'auto' && t.accountId === accId).length;
     return [...accounts].sort((a, b) => {
+      const tA = autoTerminalCount(a.id);
+      const tB = autoTerminalCount(b.id);
+      if (tA !== tB) return tA - tB;
       const uA = a.rateLimit?.window5h?.utilization ?? 0;
       const uB = b.rateLimit?.window5h?.utilization ?? 0;
       if (uA !== uB) return uA - uB;
+      const wA = a.rateLimit?.weekly?.utilization ?? 0;
+      const wB = b.rateLimit?.weekly?.utilization ?? 0;
+      if (wA !== wB) return wA - wB;
       return a.addedAt - b.addedAt;
     })[0];
   }

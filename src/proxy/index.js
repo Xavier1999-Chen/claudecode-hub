@@ -23,15 +23,18 @@ let terminals = [];
 async function loadConfig() {
   await pool.load();
   terminals = await configStore.readTerminals();
+  pool.setTerminals(terminals);
   // Hot-reload terminals on file change (after initial load)
   try {
     watch(configStore.terminalsPath, { persistent: false }, async () => {
       terminals = await configStore.readTerminals().catch(() => terminals);
+      pool.setTerminals(terminals);
     });
   } catch { /* terminals.json not yet created */ }
   // Polling fallback for WSL2 where fs.watch is unreliable
   setInterval(async () => {
     terminals = await configStore.readTerminals().catch(() => terminals);
+    pool.setTerminals(terminals);
   }, 5000).unref();
 }
 
