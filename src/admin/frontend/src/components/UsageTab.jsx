@@ -145,16 +145,24 @@ export default function UsageTab({ accounts, terminals }) {
   const yEnd = new Date(); yEnd.setHours(0, 0, 0, 0)
   const yesterdayUsd = records.filter(r => r.ts >= yStart.getTime() && r.ts < yEnd.getTime()).reduce((s, r) => s + (r.usd ?? 0), 0)
 
-  const groupKey = r => group === 'account' ? r.accountId : r.terminalId
+  const DELETED_ACCOUNT = '__deleted_account__'
+  const DELETED_TERMINAL = '__deleted_terminal__'
+  const groupKey = r => {
+    if (group === 'account') {
+      const exists = accounts.some(a => a.id === r.accountId)
+      return exists ? r.accountId : DELETED_ACCOUNT
+    }
+    const exists = terminals.some(t => t.id === r.terminalId)
+    return exists ? r.terminalId : DELETED_TERMINAL
+  }
   const labelFor = id => {
+    if (id === DELETED_ACCOUNT) return '已删除账号'
+    if (id === DELETED_TERMINAL) return '已删除终端'
     if (group === 'account') {
       const acc = accounts.find(a => a.id === id)
-      if (acc) return acc.nickname || acc.email || id
-      return `已删除账号 (${id.slice(-4)})`
+      return acc?.nickname || acc?.email || id
     }
-    const t = terminals.find(t => t.id === id)
-    if (t) return t.name || id
-    return `已删除终端 (${id.slice(-4)})`
+    return terminals.find(t => t.id === id)?.name || id
   }
 
   const dailyData = useMemo(() => {
