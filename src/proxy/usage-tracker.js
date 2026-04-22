@@ -30,6 +30,28 @@ export function createUsageTapper({ accountId, terminalId, model, logsDir = DEFA
   let buffer = '';
   let inTok = 0;
   let outTok = 0;
+  let written = false;
+
+  const writeUsage = async () => {
+    if (written || (inTok === 0 && outTok === 0)) return;
+    written = true;
+    try {
+      const rates = costPerToken(model);
+      const usd = (inTok * rates.in + outTok * rates.out) / 1e6;
+      const record = {
+        ts: Date.now(),
+        terminalId,
+        accountId,
+        mdl: model,
+        in: inTok,
+        out: outTok,
+        usd: Math.round(usd * 1e8) / 1e8,
+      };
+      const logDir = join(logsDir, accountId);
+      await mkdir(logDir, { recursive: true });
+      await appendFile(join(logDir, 'usage.jsonl'), JSON.stringify(record) + '\n');
+    } catch { /* write failure is non-fatal */ }
+  };
 
   const tapper = new Transform({
     async transform(chunk, _enc, cb) {
@@ -41,11 +63,9 @@ export function createUsageTapper({ accountId, terminalId, model, logsDir = DEFA
         if (!line.startsWith('data: ')) continue;
         try {
           const event = JSON.parse(line.slice(6));
-          // input tokens are in message_start
           if (event.type === 'message_start' && event.message?.usage) {
             inTok += event.message.usage.input_tokens ?? 0;
           }
-          // output tokens are in message_delta
           if (event.type === 'message_delta' && event.usage) {
             outTok += event.usage.output_tokens ?? 0;
           }
@@ -56,28 +76,13 @@ export function createUsageTapper({ accountId, terminalId, model, logsDir = DEFA
       cb();
     },
     async flush(cb) {
-      // Write usage record when stream ends
-      if (inTok > 0 || outTok > 0) {
-        try {
-          const rates = costPerToken(model);
-          const usd = (inTok * rates.in + outTok * rates.out) / 1e6;
-          const record = {
-            ts: Date.now(),
-            terminalId,
-            accountId,
-            mdl: model,
-            in: inTok,
-            out: outTok,
-            usd: Math.round(usd * 1e8) / 1e8,
-          };
-          const logDir = join(logsDir, accountId);
-          await mkdir(logDir, { recursive: true });
-          await appendFile(join(logDir, 'usage.jsonl'), JSON.stringify(record) + '\n');
-        } catch { /* write failure is non-fatal */ }
-      }
+      await writeUsage();
       cb();
     },
   });
+
+  // Fallback: write usage on close/error even if flush was never called
+  tapper.on('close', () => writeUsage());
 
   return tapper;
 }
