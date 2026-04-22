@@ -46,6 +46,7 @@ const HOP_BY_HOP = new Set([
   'connection', 'keep-alive', 'proxy-authenticate', 'proxy-authorization',
   'te', 'trailers', 'transfer-encoding', 'upgrade',
   'host', 'authorization', 'x-api-key', 'content-length',
+  'accept-encoding',
 ]);
 
 /**
@@ -191,6 +192,7 @@ export async function forwardRequest(req, res, account, terminalId, pool, triedI
     const model = detectModel(req);
     const tapper = createUsageTapper({ accountId: account.id, terminalId, model });
     upRes.body.pipe(tapper).pipe(res);
+    res.on('close', () => { if (!tapper.destroyed) tapper.destroy(); });
     upRes.body.on('error', () => res.end());
   } else {
     const body = Buffer.from(await upRes.arrayBuffer());
