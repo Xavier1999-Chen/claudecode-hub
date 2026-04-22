@@ -63,10 +63,8 @@ export function createUsageTapper({ accountId, terminalId, model, logsDir = DEFA
       if (lines.length > 0) console.log(`[tapper] processing ${lines.length} lines, buffer remainder=${buffer.length} chars`);
 
       for (const line of lines) {
-        if (line.startsWith('data: ')) {
-          console.log(`[tapper] data line (${line.length} chars): ${line.slice(0, 120)}`);
-        } else if (line.startsWith('event:')) {
-          console.log(`[tapper] SSE event field: ${line}`);
+        if (lines.length <= 5 || line.startsWith('data:') || line.startsWith('event:')) {
+          console.log(`[tapper] line: ${JSON.stringify(line.slice(0, 150))}`);
         }
         if (!line.startsWith('data: ')) continue;
         try {
