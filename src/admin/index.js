@@ -90,6 +90,16 @@ app.patch('/api/accounts/:id', requireAdmin, async (req, res) => {
   const acc = accounts.find(a => a.id === req.params.id);
   if (!acc) return res.status(404).json({ error: 'not_found' });
   if (req.body.nickname !== undefined) acc.nickname = req.body.nickname;
+  if (req.body.modelMap !== undefined && acc.type === 'relay') {
+    const normalisedMap = {};
+    if (req.body.modelMap && typeof req.body.modelMap === 'object') {
+      for (const tier of ['opus', 'sonnet', 'haiku']) {
+        const v = req.body.modelMap[tier];
+        if (typeof v === 'string' && v.trim().length > 0) normalisedMap[tier] = v.trim();
+      }
+    }
+    acc.modelMap = normalisedMap;
+  }
   await configStore.writeAccounts(accounts);
   res.json(sanitiseAccount(acc));
 });

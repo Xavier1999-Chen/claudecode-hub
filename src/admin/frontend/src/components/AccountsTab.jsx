@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { updateTerminal, forceOnline, forceOffline, deleteAccount, renameAccount, refreshAccountToken, syncAccountUsage } from '../api.js'
+import { updateTerminal, forceOnline, forceOffline, deleteAccount, renameAccount, refreshAccountToken, syncAccountUsage, updateRelayModelMap } from '../api.js'
 
 function fmtK(n) { if (!n) return '0'; return (n / 1000).toFixed(1) }
 function pct(used, limit) { if (!limit) return 0; return Math.min(100, Math.round(used / limit * 100)) }
@@ -21,6 +21,94 @@ function fmtReset(ts) {
   const m = Math.floor((diff % 3600000) / 60000)
   if (d > 0) return `${d}d ${h}h ${m}m 后重置`
   return h > 0 ? `${h}h ${m}m 后重置` : `${m}m 后重置`
+}
+
+// Relay card body with inline-editable model mapping
+function RelayCardBody({ acc, mounted, terms, isAdmin, onRefresh }) {
+  const [editing, setEditing] = useState(false)
+  const [mapOpus, setMapOpus] = useState(acc.modelMap?.opus ?? '')
+  const [mapSonnet, setMapSonnet] = useState(acc.modelMap?.sonnet ?? '')
+  const [mapHaiku, setMapHaiku] = useState(acc.modelMap?.haiku ?? '')
+  const [saving, setSaving] = useState(false)
+
+  function startEdit(e) {
+    e.stopPropagation()
+    setMapOpus(acc.modelMap?.opus ?? '')
+    setMapSonnet(acc.modelMap?.sonnet ?? '')
+    setMapHaiku(acc.modelMap?.haiku ?? '')
+    setEditing(true)
+  }
+
+  async function save(e) {
+    e.stopPropagation()
+    setSaving(true)
+    try {
+      const modelMap = {}
+      if (mapOpus.trim()) modelMap.opus = mapOpus.trim()
+      if (mapSonnet.trim()) modelMap.sonnet = mapSonnet.trim()
+      if (mapHaiku.trim()) modelMap.haiku = mapHaiku.trim()
+      await updateRelayModelMap(acc.id, modelMap)
+      setEditing(false)
+      await onRefresh()
+    } finally { setSaving(false) }
+  }
+
+  const hasMap = acc.modelMap && Object.keys(acc.modelMap).length > 0
+
+  return (
+    <>
+      <div className="card-body" onClick={e => editing && e.stopPropagation()}>
+        {mounted && <div className="mounted-label">✓ 已挂载</div>}
+        {editing ? (
+          <div className="relay-map-edit" style={{ fontSize: 12 }}>
+            <div className="relay-map-row">
+              <span className="relay-map-label">Opus →</span>
+              <input className="inline-edit" value={mapOpus} onChange={e => setMapOpus(e.target.value)}
+                placeholder="留空则透传" style={{ flex: 1 }} />
+            </div>
+            <div className="relay-map-row">
+              <span className="relay-map-label">Sonnet →</span>
+              <input className="inline-edit" value={mapSonnet} onChange={e => setMapSonnet(e.target.value)}
+                placeholder="留空则透传" style={{ flex: 1 }} />
+            </div>
+            <div className="relay-map-row">
+              <span className="relay-map-label">Haiku →</span>
+              <input className="inline-edit" value={mapHaiku} onChange={e => setMapHaiku(e.target.value)}
+                placeholder="留空则透传" style={{ flex: 1 }} />
+            </div>
+            <div style={{ display: 'flex', gap: 6, marginTop: 6 }}>
+              <button className="btn btn-primary btn-sm" onClick={save} disabled={saving}>
+                {saving ? '…' : '保存'}
+              </button>
+              <button className="btn btn-ghost btn-sm" onClick={e => { e.stopPropagation(); setEditing(false) }}>取消</button>
+            </div>
+          </div>
+        ) : (
+          <>
+            {hasMap ? (
+              <div className="relay-modelmap" style={{ fontSize: 12, color: '#57534e', lineHeight: 1.6 }}>
+                {acc.modelMap.opus && <div>Opus → <code>{acc.modelMap.opus}</code></div>}
+                {acc.modelMap.sonnet && <div>Sonnet → <code>{acc.modelMap.sonnet}</code></div>}
+                {acc.modelMap.haiku && <div>Haiku → <code>{acc.modelMap.haiku}</code></div>}
+              </div>
+            ) : (
+              <div style={{ fontSize: 12, color: '#a8a29e' }}>无模型映射 · 原样透传</div>
+            )}
+            {isAdmin && (
+              <button className="btn btn-ghost btn-sm" style={{ marginTop: 6, fontSize: 11 }} onClick={startEdit}>
+                编辑映射
+              </button>
+            )}
+          </>
+        )}
+      </div>
+      {terms.length > 0 && (
+        <div className="card-footer">
+          {terms.map(t => <span key={t.id} className="footer-chip">{t.name}</span>)}
+        </div>
+      )}
+    </>
+  )
 }
 
 // Per-card action panel (shown in a popover-style expanded section)
@@ -367,31 +455,7 @@ export default function AccountsTab({ accounts, terminals, onRefresh, onNewTermi
                   onClose={() => setExpandedCard(null)}
                 />
               ) : isRelay ? (
-                <>
-                  <div className="card-body">
-                    {mounted && <div className="mounted-label">✓ 已挂载</div>}
-                    <div className="relay-meta" style={{ fontSize: 12, color: '#78716c', wordBreak: 'break-all', marginBottom: 6 }}>
-                      {acc.baseUrl}
-                    </div>
-                    {acc.modelMap && Object.keys(acc.modelMap).length > 0 ? (
-                      <div className="relay-modelmap" style={{ fontSize: 12, color: '#57534e', lineHeight: 1.6 }}>
-                        {acc.modelMap.opus && <div>Opus → <code>{acc.modelMap.opus}</code></div>}
-                        {acc.modelMap.sonnet && <div>Sonnet → <code>{acc.modelMap.sonnet}</code></div>}
-                        {acc.modelMap.haiku && <div>Haiku → <code>{acc.modelMap.haiku}</code></div>}
-                      </div>
-                    ) : (
-                      <div style={{ fontSize: 12, color: '#a8a29e' }}>无模型映射 · 原样透传</div>
-                    )}
-                    <div style={{ fontSize: 11, color: '#a8a29e', marginTop: 8 }}>
-                      仅在所有 OAuth 账号耗尽时作为 fallback
-                    </div>
-                  </div>
-                  {terms.length > 0 && (
-                    <div className="card-footer">
-                      {terms.map(t => <span key={t.id} className="footer-chip">{t.name}</span>)}
-                    </div>
-                  )}
-                </>
+                <RelayCardBody acc={acc} mounted={mounted} terms={terms} isAdmin={isAdmin} onRefresh={onRefresh} />
               ) : (
                 <>
                   <div className="card-body">
