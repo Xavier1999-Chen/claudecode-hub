@@ -43,6 +43,7 @@ app.post('/api/accounts/:id/refresh-token', requireAdmin, async (req, res) => {
   const accounts = await configStore.readAccounts();
   const acc = accounts.find(a => a.id === req.params.id);
   if (!acc) return res.status(404).json({ error: 'not_found' });
+  if (acc.type === 'relay') return res.status(400).json({ error: 'relay_no_refresh' });
   try {
     const { refreshToken } = await import('../proxy/token-manager.js');
     const { fetchMe } = await import('./oauth-login.js');
@@ -121,6 +122,44 @@ app.delete('/api/accounts/:id', requireAdmin, async (req, res) => {
   await reassignTerminals(req.params.id, remaining, null);
   await configStore.writeAccounts(remaining);
   res.json({ ok: true });
+});
+
+// Add a third-party relay-station account (static apiKey + baseUrl).
+// Relays serve Claude /v1/messages without OAuth; they're used as a fallback
+// tier when all OAuth accounts are cooling/exhausted. Optional per-tier
+// modelMap rewrites body.model before forwarding (e.g. opus-4-7 → opus-4-6).
+app.post('/api/accounts/relay', requireAdmin, async (req, res) => {
+  const { nickname, baseUrl, apiKey, modelMap } = req.body ?? {};
+  if (typeof nickname !== 'string' || nickname.trim().length === 0) {
+    return res.status(400).json({ error: 'nickname_required' });
+  }
+  if (typeof baseUrl !== 'string' || !/^https:\/\//i.test(baseUrl)) {
+    return res.status(400).json({ error: 'invalid_base_url', message: 'baseUrl must start with https://' });
+  }
+  if (typeof apiKey !== 'string' || apiKey.trim().length === 0) {
+    return res.status(400).json({ error: 'api_key_required' });
+  }
+  const normalisedMap = {};
+  if (modelMap && typeof modelMap === 'object') {
+    for (const tier of ['opus', 'sonnet', 'haiku']) {
+      const v = modelMap[tier];
+      if (typeof v === 'string' && v.trim().length > 0) normalisedMap[tier] = v.trim();
+    }
+  }
+  const accounts = await configStore.readAccounts();
+  const acc = {
+    id: `acc_${randomBytes(6).toString('hex')}`,
+    type: 'relay',
+    nickname: nickname.trim(),
+    baseUrl: baseUrl.replace(/\/$/, ''),
+    credentials: { apiKey: apiKey.trim() },
+    modelMap: normalisedMap,
+    status: 'idle',
+    addedAt: Date.now(),
+  };
+  accounts.push(acc);
+  await configStore.writeAccounts(accounts);
+  res.status(201).json(sanitiseAccount(acc));
 });
 
 // ── Terminals ────────────────────────────────────────────────────────────
@@ -307,6 +346,8 @@ app.post('/api/oauth/import-manual/:sessionId', requireAdmin, async (req, res) =
  * then update acc.rateLimit in-place. Non-fatal: errors are silently ignored.
  */
 async function syncRateLimit(acc) {
+  // Relay accounts have no Anthropic rate-limit headers to sync.
+  if (acc.type === 'relay') return;
   try {
     if (isExpired(acc)) {
       const update = await refreshToken(acc);
@@ -376,6 +417,12 @@ async function syncRateLimit(acc) {
 
 function sanitiseAccount(acc) {
   const { credentials, ...rest } = acc;
+  if (acc.type === 'relay') {
+    return {
+      ...rest,
+      hasCredentials: !!credentials?.apiKey,
+    };
+  }
   return {
     ...rest,
     hasCredentials: !!credentials?.accessToken,

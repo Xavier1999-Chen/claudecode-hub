@@ -74,10 +74,12 @@ function AccountActions({ acc, onAction, onClose }) {
         </button>
       )}
 
-      {/* Refresh token */}
-      <button className="action-btn" disabled={busy === 'refresh'} onClick={() => run('refresh')}>
-        {busy === 'refresh' ? '…' : '🔑 刷新 Token'}
-      </button>
+      {/* Refresh token — OAuth only */}
+      {acc.type !== 'relay' && (
+        <button className="action-btn" disabled={busy === 'refresh'} onClick={() => run('refresh')}>
+          {busy === 'refresh' ? '…' : '🔑 刷新 Token'}
+        </button>
+      )}
 
       {/* Delete */}
       <button className="action-btn action-btn-danger" disabled={busy === 'delete'} onClick={() => run('delete')}>
@@ -305,7 +307,8 @@ export default function AccountsTab({ accounts, terminals, onRefresh, onNewTermi
           const terms = terminalsOnAccount(acc.id)
           const actionsOpen = expandedCard === acc.id
           const displayName = acc.nickname || acc.email
-          const expiry = fmtExpiry(acc.tokenExpiresAt)
+          const isRelay = acc.type === 'relay'
+          const expiry = !isRelay && fmtExpiry(acc.tokenExpiresAt)
           const reset5h = fmtReset(acc.rateLimit?.window5h?.resetAt)
           const resetWeek = fmtReset(acc.rateLimit?.weekly?.resetAt)
 
@@ -316,29 +319,35 @@ export default function AccountsTab({ accounts, terminals, onRefresh, onNewTermi
               onClick={() => !actionsOpen && mountAccount(acc)}
             >
               <div className={`card-header ${exhausted ? 'exhausted' : ''}`}>
-                <span className="card-email" title={acc.email}>{displayName}</span>
-                <span className={`plan-badge ${acc.plan === 'max' ? 'badge-max' : acc.plan === 'free' ? 'badge-free' : 'badge-pro'}`}>
-                  {acc.plan?.toUpperCase() ?? 'PRO'}
-                </span>
+                <span className="card-email" title={acc.email || acc.baseUrl}>{displayName}</span>
+                {isRelay ? (
+                  <span className="plan-badge badge-relay">中转</span>
+                ) : (
+                  <span className={`plan-badge ${acc.plan === 'max' ? 'badge-max' : acc.plan === 'free' ? 'badge-free' : 'badge-pro'}`}>
+                    {acc.plan?.toUpperCase() ?? 'PRO'}
+                  </span>
+                )}
                 <span className={`status-dot ${statusDot(acc)}`} />
                 {isAdmin && (
                   <>
-                    {/* Sync usage button */}
-                    <button
-                      className={`card-refresh-btn${syncingId === acc.id ? ' spinning' : ''}`}
-                      title="同步用量"
-                      onClick={async e => {
-                        e.stopPropagation()
-                        setSyncingId(acc.id)
-                        try {
-                          const updated = await syncAccountUsage(acc.id)
-                          await onRefresh()
-                        } finally { setSyncingId(null) }
-                      }}
-                      disabled={syncingId === acc.id}
-                    >
-                      ↻
-                    </button>
+                    {/* Sync usage button — hidden for relay (no Anthropic rate-limit headers) */}
+                    {!isRelay && (
+                      <button
+                        className={`card-refresh-btn${syncingId === acc.id ? ' spinning' : ''}`}
+                        title="同步用量"
+                        onClick={async e => {
+                          e.stopPropagation()
+                          setSyncingId(acc.id)
+                          try {
+                            const updated = await syncAccountUsage(acc.id)
+                            await onRefresh()
+                          } finally { setSyncingId(null) }
+                        }}
+                        disabled={syncingId === acc.id}
+                      >
+                        ↻
+                      </button>
+                    )}
                     {/* Edit toggle button */}
                     <button
                       className="card-edit-btn"
@@ -357,6 +366,32 @@ export default function AccountsTab({ accounts, terminals, onRefresh, onNewTermi
                   onAction={action => handleCardAction(acc, action)}
                   onClose={() => setExpandedCard(null)}
                 />
+              ) : isRelay ? (
+                <>
+                  <div className="card-body">
+                    {mounted && <div className="mounted-label">✓ 已挂载</div>}
+                    <div className="relay-meta" style={{ fontSize: 12, color: '#78716c', wordBreak: 'break-all', marginBottom: 6 }}>
+                      {acc.baseUrl}
+                    </div>
+                    {acc.modelMap && Object.keys(acc.modelMap).length > 0 ? (
+                      <div className="relay-modelmap" style={{ fontSize: 12, color: '#57534e', lineHeight: 1.6 }}>
+                        {acc.modelMap.opus && <div>Opus → <code>{acc.modelMap.opus}</code></div>}
+                        {acc.modelMap.sonnet && <div>Sonnet → <code>{acc.modelMap.sonnet}</code></div>}
+                        {acc.modelMap.haiku && <div>Haiku → <code>{acc.modelMap.haiku}</code></div>}
+                      </div>
+                    ) : (
+                      <div style={{ fontSize: 12, color: '#a8a29e' }}>无模型映射 · 原样透传</div>
+                    )}
+                    <div style={{ fontSize: 11, color: '#a8a29e', marginTop: 8 }}>
+                      仅在所有 OAuth 账号耗尽时作为 fallback
+                    </div>
+                  </div>
+                  {terms.length > 0 && (
+                    <div className="card-footer">
+                      {terms.map(t => <span key={t.id} className="footer-chip">{t.name}</span>)}
+                    </div>
+                  )}
+                </>
               ) : (
                 <>
                   <div className="card-body">
