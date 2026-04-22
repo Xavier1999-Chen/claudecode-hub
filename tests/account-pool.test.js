@@ -6,7 +6,7 @@ function makeAccount(id, opts = {}) {
   return {
     id,
     email: `${id}@example.com`,
-    plan: 'pro',
+    plan: opts.plan ?? 'pro',
     credentials: { accessToken: 'tok', refreshToken: 'ref', expiresAt: Date.now() + 3600000, scopes: ['user:inference'] },
     status: opts.status ?? 'idle',
     cooldownUntil: opts.cooldownUntil ?? null,
@@ -183,6 +183,46 @@ test('markUnauthorized for unknown id is a no-op (does not throw)', async () => 
   const pool = new AccountPool({ accounts: [makeAccount('acc_1')], terminals: [] });
   await pool.markUnauthorized('acc_nonexistent');
   assert.equal(pool.getAccount('acc_1').status, 'idle');
+});
+
+test('ensureFreshToken preserves fresher exhausted/free state on disk while updating credentials', async () => {
+  let written = null;
+  const diskAccounts = [
+    makeAccount('acc_1', { status: 'exhausted', plan: 'free' }),
+  ];
+  const mockStore = {
+    readAccounts: async () => structuredClone(diskAccounts),
+    writeAccounts: async (data) => { written = structuredClone(data); },
+  };
+  const pool = new AccountPool({
+    accounts: [
+      {
+        ...makeAccount('acc_1', { status: 'idle', plan: 'pro' }),
+        credentials: {
+          accessToken: 'old-token',
+          refreshToken: 'refresh-token',
+          expiresAt: 0,
+          scopes: ['user:inference'],
+        },
+      },
+    ],
+    terminals: [],
+    configStore: mockStore,
+    refreshTokenFn: async () => ({
+      credentials: {
+        accessToken: 'new-token',
+        refreshToken: 'refresh-token',
+        expiresAt: Date.now() + 3600000,
+        scopes: ['user:inference'],
+      },
+    }),
+  });
+
+  await pool.ensureFreshToken(pool.getAccount('acc_1'));
+
+  assert.equal(written[0].status, 'exhausted');
+  assert.equal(written[0].plan, 'free');
+  assert.equal(written[0].credentials.accessToken, 'new-token');
 });
 
 test('updateRateLimit updates account in memory', () => {

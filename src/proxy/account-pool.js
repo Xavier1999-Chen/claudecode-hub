@@ -9,6 +9,7 @@ export class AccountPool {
   #circuitBreakers = new Map(); // accountId → CircuitBreaker
   #rateQueues = new Map();       // accountId → RateQueue
   #configStore;
+  #refreshTokenFn;
   #watcher = null;
   #refreshTimer = null;
 
@@ -18,6 +19,7 @@ export class AccountPool {
    */
   constructor(opts = {}) {
     this.#configStore = opts.configStore ?? configStore;
+    this.#refreshTokenFn = opts.refreshTokenFn ?? refreshToken;
     if (opts.accounts) {
       this.#accounts = opts.accounts;
     }
@@ -149,9 +151,9 @@ export class AccountPool {
    */
   async ensureFreshToken(account) {
     if (!isExpired(account)) return account;
-    const update = await refreshToken(account);
+    const update = await this.#refreshTokenFn(account);
     Object.assign(account.credentials, update.credentials);
-    await this.#configStore.writeAccounts(this.#accounts).catch(() => {});
+    await this.#patchAccountCredentialsOnDisk(account.id, update.credentials).catch(() => {});
     return account;
   }
 
@@ -278,10 +280,16 @@ export class AccountPool {
         for (const freshAcc of fresh) {
           const mem = this.#accounts.find(a => a.id === freshAcc.id);
           if (mem) {
-            // Only update credentials if they changed (admin refreshed token)
-            if (freshAcc.credentials?.accessToken !== mem.credentials?.accessToken) {
-              Object.assign(mem.credentials, freshAcc.credentials);
-            }
+            // Pull durable fields from disk so proxy memory does not overwrite
+            // fresher admin / persistence state on a later write.
+            mem.email = freshAcc.email;
+            mem.nickname = freshAcc.nickname;
+            mem.status = freshAcc.status;
+            mem.plan = freshAcc.plan;
+            mem.cooldownUntil = freshAcc.cooldownUntil;
+            mem.addedAt = freshAcc.addedAt;
+            mem.credentials ??= {};
+            if (freshAcc.credentials) Object.assign(mem.credentials, freshAcc.credentials);
           }
         }
         // Add/remove accounts that were added/deleted via admin
@@ -311,5 +319,13 @@ export class AccountPool {
       }
     }, 10 * 60 * 1000);
     this.#refreshTimer.unref();
+  }
+
+  async #patchAccountCredentialsOnDisk(accountId, credentials) {
+    const disk = await this.#configStore.readAccounts();
+    const onDisk = disk.find(a => a.id === accountId);
+    if (!onDisk) return;
+    onDisk.credentials = { ...(onDisk.credentials ?? {}), ...credentials };
+    await this.#configStore.writeAccounts(disk);
   }
 }
