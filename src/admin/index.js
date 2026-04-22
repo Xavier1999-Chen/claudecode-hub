@@ -153,9 +153,20 @@ app.post('/api/terminals', async (req, res) => {
     const accounts = await configStore.readAccounts();
     const available = accounts.filter(a => a.status !== 'exhausted');
     if (available.length) {
-      available.sort((a, b) =>
-        (a.rateLimit?.window5h?.utilization ?? 0) - (b.rateLimit?.window5h?.utilization ?? 0)
-      );
+      const autoTerminalCount = (accId) =>
+        terminals.filter(t => t.mode === 'auto' && t.accountId === accId).length;
+      available.sort((a, b) => {
+        const tA = autoTerminalCount(a.id);
+        const tB = autoTerminalCount(b.id);
+        if (tA !== tB) return tA - tB;
+        const uA = a.rateLimit?.window5h?.utilization ?? 0;
+        const uB = b.rateLimit?.window5h?.utilization ?? 0;
+        if (uA !== uB) return uA - uB;
+        const wA = a.rateLimit?.weekly?.utilization ?? 0;
+        const wB = b.rateLimit?.weekly?.utilization ?? 0;
+        if (wA !== wB) return wA - wB;
+        return (a.addedAt ?? 0) - (b.addedAt ?? 0);
+      });
       accountId = available[0].id;
     }
   }
