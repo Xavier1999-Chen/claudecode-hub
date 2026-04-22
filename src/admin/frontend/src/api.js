@@ -148,6 +148,19 @@ export async function renameAccount(id, nickname) {
   })
 }
 
+export async function updateRelayModelMap(id, modelMap) {
+  if (USE_MOCK) {
+    await delay()
+    const acc = _accounts.find(a => a.id === id)
+    if (acc) acc.modelMap = modelMap
+    return JSON.parse(JSON.stringify(acc))
+  }
+  return apiJson(`/api/accounts/${id}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ modelMap }),
+  })
+}
+
 export async function refreshAccountToken(id) {
   if (USE_MOCK) {
     await delay(600)
@@ -156,6 +169,28 @@ export async function refreshAccountToken(id) {
     return JSON.parse(JSON.stringify(acc))
   }
   return apiJson(`/api/accounts/${id}/refresh-token`, { method: 'POST' })
+}
+
+export async function addRelayAccount({ nickname, baseUrl, apiKey, modelMap }) {
+  if (USE_MOCK) {
+    await delay(400)
+    const newAcc = {
+      id: 'acc_relay' + Date.now(),
+      type: 'relay',
+      nickname,
+      baseUrl,
+      modelMap: modelMap ?? {},
+      status: 'idle',
+      hasCredentials: true,
+      addedAt: Date.now(),
+    }
+    _accounts.push(newAcc)
+    return JSON.parse(JSON.stringify(newAcc))
+  }
+  return apiJson('/api/accounts/relay', {
+    method: 'POST',
+    body: JSON.stringify({ nickname, baseUrl, apiKey, modelMap }),
+  })
 }
 
 export async function syncAccountUsage(id) {

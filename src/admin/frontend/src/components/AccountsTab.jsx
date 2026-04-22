@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { updateTerminal, forceOnline, forceOffline, deleteAccount, renameAccount, refreshAccountToken, syncAccountUsage } from '../api.js'
+import { updateTerminal, forceOnline, forceOffline, deleteAccount, renameAccount, refreshAccountToken, syncAccountUsage, updateRelayModelMap } from '../api.js'
 
 function fmtK(n) { if (!n) return '0'; return (n / 1000).toFixed(1) }
 function pct(used, limit) { if (!limit) return 0; return Math.min(100, Math.round(used / limit * 100)) }
@@ -23,15 +23,56 @@ function fmtReset(ts) {
   return h > 0 ? `${h}h ${m}m 后重置` : `${m}m 后重置`
 }
 
+// Relay card body with inline-editable model mapping
+function RelayCardBody({ acc, mounted, terms }) {
+  const hasMap = acc.modelMap && Object.keys(acc.modelMap).length > 0
+
+  return (
+    <>
+      <div className="card-body">
+        {mounted && <div className="mounted-label">✓ 已挂载</div>}
+        {hasMap ? (
+          <div className="relay-modelmap" style={{ fontSize: 12, color: '#57534e', lineHeight: 1.6 }}>
+            {acc.modelMap.opus && <div>Opus → <code>{acc.modelMap.opus}</code></div>}
+            {acc.modelMap.sonnet && <div>Sonnet → <code>{acc.modelMap.sonnet}</code></div>}
+            {acc.modelMap.haiku && <div>Haiku → <code>{acc.modelMap.haiku}</code></div>}
+          </div>
+        ) : (
+          <div style={{ fontSize: 12, color: '#a8a29e' }}>无模型映射 · 原样透传</div>
+        )}
+      </div>
+      {terms.length > 0 && (
+        <div className="card-footer">
+          {terms.map(t => <span key={t.id} className="footer-chip">{t.name}</span>)}
+        </div>
+      )}
+    </>
+  )
+}
+
 // Per-card action panel (shown in a popover-style expanded section)
 function AccountActions({ acc, onAction, onClose }) {
   const [renaming, setRenaming] = useState(false)
   const [newName, setNewName] = useState(acc.nickname || acc.email)
   const [busy, setBusy] = useState(null)
+  const [editingMap, setEditingMap] = useState(false)
+  const [mapOpus, setMapOpus] = useState(acc.modelMap?.opus ?? '')
+  const [mapSonnet, setMapSonnet] = useState(acc.modelMap?.sonnet ?? '')
+  const [mapHaiku, setMapHaiku] = useState(acc.modelMap?.haiku ?? '')
 
   async function run(action) {
     setBusy(action)
     try { await onAction(action) } finally { setBusy(null) }
+  }
+
+  async function saveModelMap() {
+    const modelMap = {}
+    if (mapOpus.trim()) modelMap.opus = mapOpus.trim()
+    if (mapSonnet.trim()) modelMap.sonnet = mapSonnet.trim()
+    if (mapHaiku.trim()) modelMap.haiku = mapHaiku.trim()
+    setBusy('modelmap')
+    try { await onAction('modelmap:' + JSON.stringify(modelMap)) } finally { setBusy(null) }
+    setEditingMap(false)
   }
 
   const exhausted = acc.status === 'exhausted'
@@ -63,6 +104,44 @@ function AccountActions({ acc, onAction, onClose }) {
         </button>
       )}
 
+      {/* Model map editing — relay only */}
+      {acc.type === 'relay' && (
+        editingMap ? (
+          <div className="relay-map-edit" style={{ fontSize: 12, padding: '4px 0' }}>
+            <div className="relay-map-row">
+              <span className="relay-map-label">Opus →</span>
+              <input className="inline-edit" value={mapOpus} onChange={e => setMapOpus(e.target.value)}
+                placeholder="留空则透传" style={{ flex: 1 }} />
+            </div>
+            <div className="relay-map-row">
+              <span className="relay-map-label">Sonnet →</span>
+              <input className="inline-edit" value={mapSonnet} onChange={e => setMapSonnet(e.target.value)}
+                placeholder="留空则透传" style={{ flex: 1 }} />
+            </div>
+            <div className="relay-map-row">
+              <span className="relay-map-label">Haiku →</span>
+              <input className="inline-edit" value={mapHaiku} onChange={e => setMapHaiku(e.target.value)}
+                placeholder="留空则透传" style={{ flex: 1 }} />
+            </div>
+            <div style={{ display: 'flex', gap: 6, marginTop: 6 }}>
+              <button className="btn btn-primary btn-sm" onClick={saveModelMap} disabled={busy === 'modelmap'}>
+                {busy === 'modelmap' ? '…' : '保存'}
+              </button>
+              <button className="btn btn-ghost btn-sm" onClick={() => setEditingMap(false)}>取消</button>
+            </div>
+          </div>
+        ) : (
+          <button className="action-btn" onClick={() => {
+            setMapOpus(acc.modelMap?.opus ?? '')
+            setMapSonnet(acc.modelMap?.sonnet ?? '')
+            setMapHaiku(acc.modelMap?.haiku ?? '')
+            setEditingMap(true)
+          }}>
+            🔀 编辑模型映射
+          </button>
+        )
+      )}
+
       {/* Online / Offline toggle */}
       {exhausted ? (
         <button className="action-btn action-btn-success" disabled={busy === 'online'} onClick={() => run('online')}>
@@ -74,10 +153,12 @@ function AccountActions({ acc, onAction, onClose }) {
         </button>
       )}
 
-      {/* Refresh token */}
-      <button className="action-btn" disabled={busy === 'refresh'} onClick={() => run('refresh')}>
-        {busy === 'refresh' ? '…' : '🔑 刷新 Token'}
-      </button>
+      {/* Refresh token — OAuth only */}
+      {acc.type !== 'relay' && (
+        <button className="action-btn" disabled={busy === 'refresh'} onClick={() => run('refresh')}>
+          {busy === 'refresh' ? '…' : '🔑 刷新 Token'}
+        </button>
+      )}
 
       {/* Delete */}
       <button className="action-btn action-btn-danger" disabled={busy === 'delete'} onClick={() => run('delete')}>
@@ -201,6 +282,8 @@ export default function AccountsTab({ accounts, terminals, onRefresh, onNewTermi
       setExpandedCard(null)
     } else if (action.startsWith('rename:')) {
       await renameAccount(acc.id, action.slice(7))
+    } else if (action.startsWith('modelmap:')) {
+      await updateRelayModelMap(acc.id, JSON.parse(action.slice(9)))
     }
     await onRefresh()
   }
@@ -305,7 +388,8 @@ export default function AccountsTab({ accounts, terminals, onRefresh, onNewTermi
           const terms = terminalsOnAccount(acc.id)
           const actionsOpen = expandedCard === acc.id
           const displayName = acc.nickname || acc.email
-          const expiry = fmtExpiry(acc.tokenExpiresAt)
+          const isRelay = acc.type === 'relay'
+          const expiry = !isRelay && fmtExpiry(acc.tokenExpiresAt)
           const reset5h = fmtReset(acc.rateLimit?.window5h?.resetAt)
           const resetWeek = fmtReset(acc.rateLimit?.weekly?.resetAt)
 
@@ -316,29 +400,35 @@ export default function AccountsTab({ accounts, terminals, onRefresh, onNewTermi
               onClick={() => !actionsOpen && mountAccount(acc)}
             >
               <div className={`card-header ${exhausted ? 'exhausted' : ''}`}>
-                <span className="card-email" title={acc.email}>{displayName}</span>
-                <span className={`plan-badge ${acc.plan === 'max' ? 'badge-max' : acc.plan === 'free' ? 'badge-free' : 'badge-pro'}`}>
-                  {acc.plan?.toUpperCase() ?? 'PRO'}
-                </span>
+                <span className="card-email" title={acc.email || acc.baseUrl}>{displayName}</span>
+                {isRelay ? (
+                  <span className="plan-badge badge-relay">中转</span>
+                ) : (
+                  <span className={`plan-badge ${acc.plan === 'max' ? 'badge-max' : acc.plan === 'free' ? 'badge-free' : 'badge-pro'}`}>
+                    {acc.plan?.toUpperCase() ?? 'PRO'}
+                  </span>
+                )}
                 <span className={`status-dot ${statusDot(acc)}`} />
                 {isAdmin && (
                   <>
-                    {/* Sync usage button */}
-                    <button
-                      className={`card-refresh-btn${syncingId === acc.id ? ' spinning' : ''}`}
-                      title="同步用量"
-                      onClick={async e => {
-                        e.stopPropagation()
-                        setSyncingId(acc.id)
-                        try {
-                          const updated = await syncAccountUsage(acc.id)
-                          await onRefresh()
-                        } finally { setSyncingId(null) }
-                      }}
-                      disabled={syncingId === acc.id}
-                    >
-                      ↻
-                    </button>
+                    {/* Sync usage button — hidden for relay (no Anthropic rate-limit headers) */}
+                    {!isRelay && (
+                      <button
+                        className={`card-refresh-btn${syncingId === acc.id ? ' spinning' : ''}`}
+                        title="同步用量"
+                        onClick={async e => {
+                          e.stopPropagation()
+                          setSyncingId(acc.id)
+                          try {
+                            const updated = await syncAccountUsage(acc.id)
+                            await onRefresh()
+                          } finally { setSyncingId(null) }
+                        }}
+                        disabled={syncingId === acc.id}
+                      >
+                        ↻
+                      </button>
+                    )}
                     {/* Edit toggle button */}
                     <button
                       className="card-edit-btn"
@@ -357,6 +447,8 @@ export default function AccountsTab({ accounts, terminals, onRefresh, onNewTermi
                   onAction={action => handleCardAction(acc, action)}
                   onClose={() => setExpandedCard(null)}
                 />
+              ) : isRelay ? (
+                <RelayCardBody acc={acc} mounted={mounted} terms={terms} />
               ) : (
                 <>
                   <div className="card-body">

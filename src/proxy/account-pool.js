@@ -72,16 +72,22 @@ export class AccountPool {
    * Pick the least-used account excluding the given set of account IDs.
    * Prefers warm (non-cooling) accounts; falls back to cooling accounts
    * (soonest resetAt first) when no warm candidate is available.
+   * Relay accounts are only considered after all OAuth accounts are excluded
+   * or unusable — they act as an absolute fallback tier.
    * Returns null if no alternative is available.
    * @param {Set<string>} excludeIds
    */
   selectFallback(excludeIds) {
-    const usable = this.#accounts
+    const isRelay = (a) => a.type === 'relay';
+    const eligible = this.#accounts
       .filter(a => !excludeIds.has(a.id) && a.status !== 'exhausted' && this.#ensureCB(a.id).canRequest());
-    const warm = usable.filter(a => !this.#isCooling(a));
+    const oauth = eligible.filter(a => !isRelay(a));
+    const warm = oauth.filter(a => !this.#isCooling(a));
     if (warm.length) return this.#leastUtilized(warm);
-    const cooling = usable.filter(a => this.#isCooling(a));
+    const cooling = oauth.filter(a => this.#isCooling(a));
     if (cooling.length) return this.#soonestReset(cooling);
+    const relays = eligible.filter(isRelay);
+    if (relays.length) return this.#oldestRelay(relays);
     return null;
   }
 
@@ -151,8 +157,10 @@ export class AccountPool {
   /**
    * Ensure accessToken is fresh; refreshes in-place if needed.
    * Returns the (possibly updated) account.
+   * Relay accounts use a static apiKey and skip refresh entirely.
    */
   async ensureFreshToken(account) {
+    if (account.type === 'relay') return account;
     if (!isExpired(account)) return account;
     const update = await refreshToken(account);
     Object.assign(account.credentials, update.credentials);
@@ -185,11 +193,14 @@ export class AccountPool {
   }
 
   #pickAuto(preferredId = null) {
-    const usable = this.#accounts
+    const isRelay = (a) => a.type === 'relay';
+    const eligible = this.#accounts
       .filter(a => a.status !== 'exhausted' && this.#ensureCB(a.id).canRequest());
-    if (usable.length === 0) throw new Error('503: no available accounts');
+    if (eligible.length === 0) throw new Error('503: no available accounts');
 
-    const warm = usable.filter(a => !this.#isCooling(a));
+    // OAuth tier first — relays are reserved as absolute fallback.
+    const oauth = eligible.filter(a => !isRelay(a));
+    const warm = oauth.filter(a => !this.#isCooling(a));
 
     // Prefer the current account only while it's warm — stickiness must not
     // pin an auto-mode terminal to a cooling account.
@@ -200,9 +211,21 @@ export class AccountPool {
 
     if (warm.length) return this.#leastUtilized(warm);
 
-    // Every usable account is cooling. Graceful degrade: try the one that
-    // resets soonest so the caller waits the least.
-    return this.#soonestReset(usable);
+    // No warm OAuth. If a relay is available, prefer it over waiting on a
+    // cooling OAuth account — relays don't have per-window limits so the
+    // caller gets served immediately.
+    const relays = eligible.filter(isRelay);
+    if (relays.length) return this.#oldestRelay(relays);
+
+    // No OAuth warm, no relay — graceful degrade to soonest-reset cooling OAuth.
+    const coolingOauth = oauth.filter(a => this.#isCooling(a));
+    if (coolingOauth.length) return this.#soonestReset(coolingOauth);
+
+    throw new Error('503: no available accounts');
+  }
+
+  #oldestRelay(relays) {
+    return [...relays].sort((a, b) => (a.addedAt ?? 0) - (b.addedAt ?? 0))[0];
   }
 
   /**

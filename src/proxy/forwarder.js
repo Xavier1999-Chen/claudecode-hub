@@ -2,6 +2,8 @@ import fetch from 'node-fetch';
 import { HttpsProxyAgent } from 'https-proxy-agent';
 import { createUsageTapper } from './usage-tracker.js';
 import { isOAuthRevoked } from './permission-guard.js';
+import { applyModelMap } from './model-map.js';
+import { stripThinkingBlocks } from './thinking-strip.js';
 
 const UPSTREAM = 'https://api.anthropic.com';
 const UPSTREAM_TIMEOUT_MS = 60_000;
@@ -60,27 +62,49 @@ const HOP_BY_HOP = new Set([
  * @param {import('./account-pool.js').AccountPool} pool
  */
 export async function forwardRequest(req, res, account, terminalId, pool, triedIds = new Set(), onFallback = null) {
+  const isRelay = account.type === 'relay';
+
   // Build upstream headers
   const upHeaders = {};
   for (const [k, v] of Object.entries(req.headers)) {
     if (!HOP_BY_HOP.has(k.toLowerCase())) upHeaders[k] = v;
   }
-  upHeaders['authorization'] = `Bearer ${account.credentials.accessToken}`;
-  upHeaders['anthropic-beta'] = addOAuthBeta(upHeaders['anthropic-beta']);
-  // Pro accounts don't support 1M context window; strip the flag so Opus works with 200K.
-  // Max accounts keep it as-is.
-  if (account.plan !== 'max') {
-    upHeaders['anthropic-beta'] = upHeaders['anthropic-beta']
-      .split(',').filter(b => b.trim() !== 'context-1m-2025-08-07').join(',');
-  }
-  if (!upHeaders['anthropic-version']) upHeaders['anthropic-version'] = '2023-06-01';
 
-  const url = UPSTREAM + req.url;
+  let outBody = req.method !== 'GET' && req.method !== 'HEAD' ? req.rawBody : undefined;
+
+  // Always strip thinking blocks from historical assistant messages.
+  // Signatures in these blocks are HMACed per-account; our rotating pool
+  // means a replayed block from a prior turn will fail validation at a
+  // different upstream. See @/src/proxy/thinking-strip.js for detail.
+  if (outBody) outBody = stripThinkingBlocks(outBody);
+
+  if (isRelay) {
+    // Relay station: static API key, no OAuth beta, no 1M-context stripping.
+    upHeaders['x-api-key'] = account.credentials.apiKey;
+    if (!upHeaders['anthropic-version']) upHeaders['anthropic-version'] = '2023-06-01';
+    // Apply per-relay model-name remapping (body.model rewrite) before forwarding.
+    if (outBody && account.modelMap) {
+      outBody = applyModelMap(outBody, account.modelMap);
+    }
+  } else {
+    upHeaders['authorization'] = `Bearer ${account.credentials.accessToken}`;
+    upHeaders['anthropic-beta'] = addOAuthBeta(upHeaders['anthropic-beta']);
+    // Pro accounts don't support 1M context window; strip the flag so Opus works with 200K.
+    // Max accounts keep it as-is.
+    if (account.plan !== 'max') {
+      upHeaders['anthropic-beta'] = upHeaders['anthropic-beta']
+        .split(',').filter(b => b.trim() !== 'context-1m-2025-08-07').join(',');
+    }
+    if (!upHeaders['anthropic-version']) upHeaders['anthropic-version'] = '2023-06-01';
+  }
+
+  const baseUrl = isRelay ? (account.baseUrl || UPSTREAM) : UPSTREAM;
+  const url = baseUrl.replace(/\/$/, '') + req.url;
 
   const fetchOpts = {
     method: req.method,
     headers: upHeaders,
-    body: req.method !== 'GET' && req.method !== 'HEAD' ? req.rawBody : undefined,
+    body: outBody,
     compress: false,
     ...(proxyAgent && { agent: proxyAgent }),
   };
@@ -102,7 +126,9 @@ export async function forwardRequest(req, res, account, terminalId, pool, triedI
 
   // Handle token expiry: reload from disk first (admin may have refreshed),
   // then fall back to calling the refresh endpoint. Retry once.
-  if (upRes.status === 401) {
+  // Relay accounts use a static apiKey — a 401 there means the key is bad;
+  // pass the error through so the admin can see it.
+  if (upRes.status === 401 && !isRelay) {
     console.log(`[fwd] 401 for account ${account.id}, reloading credentials from disk`);
     try {
       await pool.reloadAccount(account.id);

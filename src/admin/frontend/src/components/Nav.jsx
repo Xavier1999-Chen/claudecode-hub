@@ -1,6 +1,6 @@
 import LogoMark from './LogoMark.jsx'
 
-export default function Nav({ tab, setTab, onAddAccount, onNewTerminal, session, isAdmin, onSignOut }) {
+export default function Nav({ tab, setTab, onAddAccount, onAddRelay, onNewTerminal, session, isAdmin, onSignOut }) {
   return (
     <nav className="nav">
       <div className="nav-logo"><LogoMark size={20} />claudecode-hub</div>
@@ -13,7 +13,10 @@ export default function Nav({ tab, setTab, onAddAccount, onNewTerminal, session,
           <button className="btn btn-primary" onClick={onNewTerminal}>+ 新建终端</button>
         )}
         {tab === 'accounts' && isAdmin && (
-          <button className="btn btn-primary" onClick={onAddAccount}>+ 添加账号</button>
+          <>
+            <button className="btn btn-ghost" onClick={onAddRelay}>+ 添加中转</button>
+            <button className="btn btn-primary" onClick={onAddAccount}>+ 添加账号</button>
+          </>
         )}
         <div className="nav-user">
           <span className="nav-user-email">{session?.user?.email}</span>

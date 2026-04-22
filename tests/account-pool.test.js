@@ -59,8 +59,8 @@ test('manual mode throws 503 if circuit breaker is open', () => {
 test('auto mode picks account with most 5h tokens remaining', () => {
   const pool = new AccountPool({
     accounts: [
-      makeAccount('acc_low', { used5h: 80000 }),
-      makeAccount('acc_high', { used5h: 20000 }),
+      makeAccount('acc_low', { utilization: 0.8 }),
+      makeAccount('acc_high', { utilization: 0.2 }),
     ],
     terminals: [],
   });
@@ -234,12 +234,14 @@ test('auto mode uses weekly utilization as tiebreaker', () => {
 
 test('updateRateLimit updates account in memory', () => {
   const acc = makeAccount('acc_1');
+  const resetEpoch = Math.floor((Date.now() + 3600000) / 1000);
   const pool = new AccountPool({ accounts: [acc], terminals: [] });
   pool.updateRateLimit('acc_1', {
-    'x-ratelimit-tokens-limit': '100000',
-    'x-ratelimit-tokens-remaining': '70000',
-    'x-ratelimit-tokens-reset': new Date(Date.now() + 3600000).toISOString(),
+    'anthropic-ratelimit-unified-5h-utilization': '0.3',
+    'anthropic-ratelimit-unified-5h-reset': String(resetEpoch),
+    'anthropic-ratelimit-unified-5h-status': 'allowed',
   });
   const updated = pool.getAccount('acc_1');
-  assert.equal(updated.rateLimit.window5h.used, 30000);
+  assert.equal(updated.rateLimit.window5h.utilization, 0.3);
+  assert.equal(updated.rateLimit.window5h.status, 'allowed');
 });

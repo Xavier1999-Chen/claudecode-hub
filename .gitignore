@@ -11,3 +11,6 @@ CLAUDE.md
 .superpowers/
 .worktrees/
 docs/
+
+# local test scripts containing secrets
+test-relay.sh
