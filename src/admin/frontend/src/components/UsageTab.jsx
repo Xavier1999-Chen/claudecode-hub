@@ -147,8 +147,14 @@ export default function UsageTab({ accounts, terminals }) {
 
   const groupKey = r => group === 'account' ? r.accountId : r.terminalId
   const labelFor = id => {
-    if (group === 'account') return accounts.find(a => a.id === id)?.email ?? id
-    return terminals.find(t => t.id === id)?.name ?? id
+    if (group === 'account') {
+      const acc = accounts.find(a => a.id === id)
+      if (acc) return acc.nickname || acc.email || id
+      return `已删除账号 (${id.slice(-4)})`
+    }
+    const t = terminals.find(t => t.id === id)
+    if (t) return t.name || id
+    return `已删除终端 (${id.slice(-4)})`
   }
 
   const dailyData = useMemo(() => {
