@@ -2,6 +2,7 @@ import { watch } from 'node:fs';
 import { CircuitBreaker } from './circuit-breaker.js';
 import { RateQueue } from './rate-queue.js';
 import { isExpired, refreshToken } from './token-manager.js';
+import { normalizePlanTier } from '../shared/oauth-plan.js';
 import { configStore } from '../shared/config.js';
 
 export class AccountPool {
@@ -151,6 +152,8 @@ export class AccountPool {
     if (!isExpired(account)) return account;
     const update = await refreshToken(account);
     Object.assign(account.credentials, update.credentials);
+    const st = normalizePlanTier(account.credentials.subscriptionType);
+    if (st) account.plan = st;
     await this.#configStore.writeAccounts(this.#accounts).catch(() => {});
     return account;
   }

@@ -7,10 +7,18 @@ import { randomBytes } from 'node:crypto';
 import { configStore } from '../shared/config.js';
 import { isExpired, refreshToken } from '../proxy/token-manager.js';
 import { generateName } from '../shared/names.js';
-import { createLoginSession, importCredentials, startTmuxLogin, submitAuthCode, waitForCredentials } from './oauth-login.js';
+import {
+  createLoginSession,
+  importCredentials,
+  fetchProfilePlanTier,
+  startTmuxLogin,
+  submitAuthCode,
+  waitForCredentials,
+} from './oauth-login.js';
 import { requireAuth, requireApproved, requireAdmin } from './auth.js';
 import { isAccountCooling, reassignCoolingTerminals } from './reassignment.js';
 import { isOAuthRevoked } from '../proxy/permission-guard.js';
+import { extractPlanFromAccessTokenJwt, normalizePlanTier } from '../shared/oauth-plan.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PORT = process.env.ADMIN_PORT ?? 3182;
@@ -51,8 +59,12 @@ app.post('/api/accounts/:id/refresh-token', requireAdmin, async (req, res) => {
     // Re-fetch email after token refresh (fixes accounts imported with placeholder email)
     const meData = await fetchMe(acc.credentials.accessToken);
     if (meData.email) acc.email = meData.email;
-    // Plan comes from subscriptionType in the refreshed credentials
-    if (update.credentials.subscriptionType) acc.plan = update.credentials.subscriptionType;
+    const fromMe = normalizePlanTier(meData.subscriptionType);
+    const fromCreds = normalizePlanTier(update.credentials.subscriptionType);
+    if (fromCreds) acc.plan = fromCreds;
+    else if (fromMe) acc.plan = fromMe;
+    if (fromCreds) acc.credentials.subscriptionType = fromCreds;
+    else if (fromMe) acc.credentials.subscriptionType = fromMe;
     // Probe Anthropic API to sync current rate limit usage from response headers
     await syncRateLimit(acc);
     await configStore.writeAccounts(accounts);
@@ -291,6 +303,30 @@ app.post('/api/oauth/import-manual/:sessionId', requireAdmin, async (req, res) =
 
 // ── Helpers ───────────────────────────────────────────────────────────────
 
+/** Throttle remote profile fetches per account (JWT decode is cheap; this is not). */
+const profilePlanThrottle = new Map();
+const PROFILE_PLAN_MIN_MS = 5 * 60 * 1000;
+
+/**
+ * Refresh acc.plan from /api/oauth/profile (throttled) and JWT claims (cheap).
+ * See #21 — imported plan tier can stay "pro" after Anthropic downgrade.
+ */
+async function refreshAccountPlanFromAnthropic(acc) {
+  const token = acc.credentials?.accessToken;
+  if (!token) return;
+
+  const last = profilePlanThrottle.get(acc.id) ?? 0;
+  const doProfile = Date.now() - last >= PROFILE_PLAN_MIN_MS;
+  if (doProfile) profilePlanThrottle.set(acc.id, Date.now());
+
+  let tier = doProfile ? await fetchProfilePlanTier(token) : null;
+  if (!tier) tier = extractPlanFromAccessTokenJwt(token);
+  if (tier) {
+    acc.plan = tier;
+    acc.credentials.subscriptionType = tier;
+  }
+}
+
 /**
  * Make a minimal probe request to Anthropic to read current rate-limit headers,
  * then update acc.rateLimit in-place. Non-fatal: errors are silently ignored.
@@ -300,7 +336,10 @@ async function syncRateLimit(acc) {
     if (isExpired(acc)) {
       const update = await refreshToken(acc);
       Object.assign(acc.credentials, update.credentials);
+      const st = normalizePlanTier(acc.credentials.subscriptionType);
+      if (st) acc.plan = st;
     }
+    await refreshAccountPlanFromAnthropic(acc);
     const fetch = (await import('node-fetch')).default;
     const { HttpsProxyAgent } = await import('https-proxy-agent');
     const proxyUrl = process.env.HTTPS_PROXY || process.env.https_proxy

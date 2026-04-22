@@ -5,10 +5,12 @@ import { exec, execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import fetch from 'node-fetch';
 import { HttpsProxyAgent } from 'https-proxy-agent';
+import { normalizePlanTier, pickPlanFromAnthropicProfileBody } from '../shared/oauth-plan.js';
 
 const execAsync = promisify(exec);
 const execFileAsync = promisify(execFile);
 const ROLES_URL = 'https://api.anthropic.com/api/oauth/claude_cli/roles';
+const PROFILE_URL = 'https://api.anthropic.com/api/oauth/profile';
 
 const proxyUrl = process.env.HTTPS_PROXY || process.env.https_proxy
                || process.env.HTTP_PROXY  || process.env.http_proxy;
@@ -202,10 +204,14 @@ async function killTmuxSession(tmuxSession) {
 }
 
 function buildAccount(creds, meData) {
+  const plan =
+    normalizePlanTier(creds.subscriptionType) ??
+    normalizePlanTier(meData.subscriptionType) ??
+    'pro';
   return {
     id: `acc_${randomBytes(6).toString('hex')}`,
     email: meData.email ?? 'unknown@example.com',
-    plan: creds.subscriptionType ?? 'pro',
+    plan,
     credentials: {
       accessToken: creds.accessToken,
       refreshToken: creds.refreshToken ?? null,
@@ -233,9 +239,28 @@ export async function fetchMe(accessToken) {
     // email is embedded in organization_name: "user@example.com's Organization"
     const orgName = data.organization_name ?? '';
     const email = orgName.replace(/'s Organization$/i, '').trim() || null;
-    return { email };
+    const planFromRoles = pickPlanFromAnthropicProfileBody(data);
+    return { email, subscriptionType: planFromRoles ?? undefined };
   } catch {
     return {};
+  }
+}
+
+/**
+ * GET /api/oauth/profile — current subscription tier when OAuth is still valid.
+ * @returns {'free' | 'pro' | 'max' | null}
+ */
+export async function fetchProfilePlanTier(accessToken) {
+  try {
+    const res = await fetch(PROFILE_URL, {
+      headers: { authorization: `Bearer ${accessToken}` },
+      ...(proxyAgent && { agent: proxyAgent }),
+    });
+    if (!res.ok) return null;
+    const data = await res.json();
+    return pickPlanFromAnthropicProfileBody(data);
+  } catch {
+    return null;
   }
 }
 
