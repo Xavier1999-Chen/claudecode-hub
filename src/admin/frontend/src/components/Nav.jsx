@@ -7,6 +7,7 @@ export default function Nav({ tab, setTab, onAddAccount, onNewTerminal, session,
       <div className={`nav-tab ${tab === 'accounts' ? 'active' : ''}`} onClick={() => setTab('accounts')}>账号</div>
       <div className={`nav-tab ${tab === 'terminals' ? 'active' : ''}`} onClick={() => setTab('terminals')}>终端</div>
       <div className={`nav-tab ${tab === 'usage' ? 'active' : ''}`} onClick={() => setTab('usage')}>用量</div>
+      <div className={`nav-tab ${tab === 'guide' ? 'active' : ''}`} onClick={() => setTab('guide')}>指南</div>
       <div className="nav-right" style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
         {tab === 'terminals' && (
           <button className="btn btn-primary" onClick={onNewTerminal}>+ 新建终端</button>

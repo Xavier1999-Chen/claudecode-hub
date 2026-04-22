@@ -274,3 +274,89 @@ tr:hover td { background: #FDFAF8; }
 .action-rename-row { display: flex; gap: 6px; align-items: center; margin-bottom: 4px; }
 .token-expiry { font-size: 11px; color: #a8a29e; margin-bottom: 8px; }
 .rate-limited-label { color: #ef4444; font-weight: 600; }
+
+/* ── Guide Tab ─────────────────────────────────────────────────────────────── */
+.guide-tab { max-width: 1100px; margin: 0 auto; padding: 32px 24px 60px; }
+
+.guide-hero { text-align: left; margin-bottom: 40px; }
+.guide-hero-title { font-size: 56px; font-weight: 800; color: #1c1917; line-height: 1.1; margin: 0 0 16px; letter-spacing: -0.02em; }
+.guide-hero-title-accent { color: #E87040; }
+.guide-hero-desc { font-size: 16px; color: #78716c; margin: 0; max-width: 640px; line-height: 1.6; }
+
+.guide-platform-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-bottom: 36px; }
+.guide-platform-card { background: white; border: 1.5px solid #e7e5e4; border-radius: 12px; padding: 20px; cursor: pointer; transition: border-color 0.15s, box-shadow 0.15s; }
+.guide-platform-card:hover { border-color: #FDDCCC; box-shadow: 0 2px 8px rgba(232,112,64,0.08); }
+.guide-platform-card.active { border-color: #E87040; background: #FEF3EE; }
+.guide-platform-card-title { font-size: 16px; font-weight: 700; color: #1c1917; margin-bottom: 6px; }
+.guide-platform-card.active .guide-platform-card-title { color: #C0532A; }
+.guide-platform-card-desc { font-size: 13px; color: #78716c; line-height: 1.5; margin-bottom: 12px; }
+.guide-platform-card-action { font-size: 13px; color: #E87040; font-weight: 600; }
+
+.guide-platform-content { margin-top: 0; }
+.guide-platform-content-label { font-size: 18px; font-weight: 700; color: #1c1917; margin-bottom: 16px; padding-bottom: 12px; border-bottom: 2px solid #E87040; }
+
+.guide-platform-btn { padding: 8px 18px; font-size: 14px; cursor: pointer; background: white; border: 1.5px solid #e7e5e4; border-radius: 8px; color: #78716c; font-weight: 500; transition: border-color 0.15s, color 0.15s, background 0.15s; }
+.guide-platform-btn:hover { border-color: #FDDCCC; color: #E87040; }
+.guide-platform-btn.active { border-color: #E87040; color: #E87040; background: #FEF3EE; font-weight: 600; }
+
+@media (max-width: 700px) {
+  .guide-platform-grid { grid-template-columns: 1fr; }
+  .guide-hero-title { font-size: 36px; }
+}
+
+.guide-shell-switch { display: flex; gap: 8px; margin-bottom: 12px; }
+
+.guide-content { display: flex; flex-direction: column; gap: 8px; }
+.guide-desc { font-size: 14px; color: #78716c; margin: 0 0 16px; }
+
+.guide-step { background: white; border: 1px solid #e7e5e4; border-radius: 12px; overflow: hidden; }
+.guide-step-header { display: flex; align-items: center; gap: 12px; padding: 14px 18px; border-bottom: 1px solid #f0ede8; background: #FDFCFA; }
+.guide-step-num { width: 26px; height: 26px; border-radius: 50%; background: #E87040; color: white; font-size: 13px; font-weight: 700; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+.guide-step-title { font-size: 15px; font-weight: 600; color: #1c1917; }
+.guide-step-body { padding: 16px 18px; display: flex; flex-direction: column; gap: 10px; font-size: 14px; color: #44403c; line-height: 1.6; }
+.guide-step-body p { margin: 0; }
+.guide-step-body a { color: #E87040; text-decoration: none; }
+.guide-step-body a:hover { text-decoration: underline; }
+.guide-step-body code { font-family: 'SF Mono', Consolas, monospace; font-size: 12px; background: #f4f1eb; padding: 2px 6px; border-radius: 4px; color: #1c1917; }
+
+.guide-method-label { font-weight: 600; color: #1c1917; font-size: 13px; margin: 0; }
+.guide-verify-label { font-size: 13px; color: #78716c; margin: 0; }
+
+.guide-list { margin: 0; padding-left: 20px; }
+.guide-list li { margin-bottom: 4px; }
+.guide-list a { color: #E87040; text-decoration: none; }
+.guide-list a:hover { text-decoration: underline; }
+.guide-list code { font-family: 'SF Mono', Consolas, monospace; font-size: 12px; background: #f4f1eb; padding: 2px 6px; border-radius: 4px; }
+
+.guide-code-wrap { position: relative; border-radius: 8px; overflow: hidden; }
+.guide-code { margin: 0; padding: 14px 16px; background: #1c1917; color: #f4f1eb; font-family: 'SF Mono', Consolas, monospace; font-size: 13px; line-height: 1.65; overflow-x: auto; border-radius: 8px; white-space: pre; }
+.guide-code code { background: transparent; padding: 0; border-radius: 0; color: inherit; font-size: inherit; font-family: inherit; }
+.guide-copy-btn { position: absolute; top: 8px; right: 8px; padding: 3px 10px; font-size: 12px; border-radius: 5px; border: 1px solid #3d3530; background: #2d2521; color: #a8a29e; cursor: pointer; transition: color 0.15s, border-color 0.15s; }
+.guide-copy-btn:hover { color: #E87040; border-color: #E87040; }
+
+.guide-note { background: #FEF3EE; border-left: 3px solid #E87040; border-radius: 0 8px 8px 0; padding: 10px 14px; font-size: 13px; color: #44403c; line-height: 1.5; }
+.guide-note code { font-family: 'SF Mono', Consolas, monospace; font-size: 12px; background: #FDDCCC; padding: 1px 5px; border-radius: 3px; }
+.guide-note strong { color: #E87040; }
+
+.guide-env-desc { display: flex; flex-direction: column; gap: 6px; }
+.guide-env-row { display: flex; align-items: baseline; gap: 10px; font-size: 13px; }
+.guide-env-row code { font-family: 'SF Mono', Consolas, monospace; font-size: 12px; background: #f4f1eb; padding: 2px 7px; border-radius: 4px; color: #1c1917; white-space: nowrap; }
+.guide-env-row span { color: #78716c; }
+
+.guide-tab-code { border: 1px solid #e7e5e4; border-radius: 8px; overflow: hidden; }
+.guide-tab-code-bar { display: flex; background: #FDFCFA; border-bottom: 1px solid #e7e5e4; }
+.guide-tab-code-btn { padding: 8px 16px; font-size: 13px; cursor: pointer; background: transparent; border: none; color: #78716c; border-bottom: 2px solid transparent; transition: color 0.15s; }
+.guide-tab-code-btn:hover { color: #E87040; }
+.guide-tab-code-btn.active { color: #E87040; border-bottom-color: #E87040; font-weight: 600; }
+.guide-tab-code .guide-code-wrap { border-radius: 0; }
+.guide-tab-code .guide-code { border-radius: 0; }
+
+.guide-faq { margin-top: 8px; background: white; border: 1px solid #e7e5e4; border-radius: 12px; overflow: hidden; }
+.guide-faq-title { font-size: 14px; font-weight: 600; color: #78716c; text-transform: uppercase; letter-spacing: .04em; padding: 14px 18px; margin: 0; border-bottom: 1px solid #f0ede8; background: #FDFCFA; }
+.guide-faq-item { padding: 14px 18px; border-bottom: 1px solid #f0ede8; font-size: 14px; }
+.guide-faq-item:last-child { border-bottom: none; }
+.guide-faq-q { font-weight: 600; color: #1c1917; margin-bottom: 5px; }
+.guide-faq-a { color: #78716c; line-height: 1.5; }
+.guide-faq-a code { font-family: 'SF Mono', Consolas, monospace; font-size: 12px; background: #f4f1eb; padding: 1px 5px; border-radius: 3px; color: #1c1917; }
+.guide-faq-a a { color: #E87040; text-decoration: none; }
+.guide-faq-a a:hover { text-decoration: underline; }
