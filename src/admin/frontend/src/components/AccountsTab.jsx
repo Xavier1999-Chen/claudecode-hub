@@ -25,21 +25,35 @@ function fmtReset(ts) {
 
 // ── Relay health components ────────────────────────────────────────────────
 
-function useNextCheckCountdown(nextCheckAt) {
-  const [now, setNow] = useState(() => Date.now())
+function useTtlCountdown(ttlMs) {
+  const [state, setState] = useState(null) // { receivedAt, ttlMs }
+  // Sync from server: update when a fresh ttlMs arrives
   useEffect(() => {
-    const id = setInterval(() => setNow(Date.now()), 1000)
+    if (ttlMs == null) { setState(null); return }
+    setState(prev => {
+      if (!prev) return { receivedAt: Date.now(), ttlMs }
+      // Only reset if server gave us a significantly larger value
+      // (meaning a new probe cycle started). Otherwise keep counting.
+      const localRemaining = prev.ttlMs - (Date.now() - prev.receivedAt)
+      if (ttlMs > localRemaining + 2000) return { receivedAt: Date.now(), ttlMs }
+      return prev
+    })
+  }, [ttlMs])
+  // Local tick every second
+  const [tick, setTick] = useState(0)
+  useEffect(() => {
+    const id = setInterval(() => setTick(t => t + 1), 1000)
     return () => clearInterval(id)
   }, [])
-  if (!nextCheckAt) return ''
-  const remaining = nextCheckAt - now
+  if (!state) return ''
+  const remaining = state.ttlMs - (Date.now() - state.receivedAt)
   if (remaining <= 0) return '正在检查'
   const s = Math.ceil(remaining / 1000)
   return s >= 120 ? `${Math.ceil(s / 60)}min 后再次检查` : `${s}s 后再次检查`
 }
 
 function RelayHealthRow({ health }) {
-  const countdown = useNextCheckCountdown(health?.nextCheckAt ?? null)
+  const countdown = useTtlCountdown(health?.ttlMs ?? null)
   if (!health) {
     return <div className="relay-health-row unknown">⚪ 请先配置探测模型</div>
   }

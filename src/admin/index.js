@@ -459,6 +459,12 @@ function sanitiseAccount(acc) {
   const { credentials, ...rest } = acc;
   if (acc.type === 'relay') {
     const health = relayHealthCache.get(acc.id) ?? null;
+    // ttlMs: remaining ms until next probe. Recalculated on every getAccounts
+    // call so the frontend always gets a fresh value. Frontend uses
+    // (ttlMs - local elapsed) for countdown — immune to clock drift.
+    const ttlMs = health
+      ? Math.max(0, health._nextCheckAt - Date.now())
+      : null;
     return {
       ...rest,
       hasCredentials: !!credentials?.apiKey,
@@ -468,7 +474,7 @@ function sanitiseAccount(acc) {
             latencyMs: health.latencyMs,
             model: health.model,
             error: health.error,
-            nextCheckAt: health._nextCheckAt,
+            ttlMs,
           }
         : null,
     };
@@ -583,7 +589,7 @@ app.listen(PORT, HOST, () => {
 // Runs every 60s regardless of how many users are online. Each cycle probes
 // all relay accounts that have a probe model configured and updates the
 // relayHealthCache. Frontend just reads the cache via getAccounts.
-setInterval(async () => {
+async function probeAllRelays() {
   try {
     const accounts = await configStore.readAccounts();
     for (const acc of accounts) {
@@ -597,4 +603,6 @@ setInterval(async () => {
   } catch (err) {
     console.error('[relay-poll] error:', err.message);
   }
-}, RELAY_HEALTH_POLL_MS);
+}
+probeAllRelays(); // Initial probe on startup — don't wait 60s
+setInterval(probeAllRelays, RELAY_HEALTH_POLL_MS);
