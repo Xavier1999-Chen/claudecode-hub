@@ -76,59 +76,99 @@ function Gauge({ usd }) {
   )
 }
 
-function Heatmap({ dailyMap, cycleStart, cycleEnd, nowMs }) {
-  // Build the 30-day grid: 7 columns (weekdays) × 5 rows (weeks).
-  // Day index = row * 7 + col, capped at 30. The remaining 5 cells (index 30-34)
-  // are rendered as neutral "out-of-cycle" placeholders.
-  const startDay = new Date(cycleStart); startDay.setHours(0, 0, 0, 0)
+const MONTHS_SHORT = ['1月','2月','3月','4月','5月','6月','7月','8月','9月','10月','11月','12月']
+const WEEKDAY_LABELS = ['', '周一', '', '周三', '', '周五', '']
 
-  const cells = []
-  for (let col = 0; col < 7; col++) {
-    const colCells = []
-    for (let row = 0; row < 5; row++) {
-      const dayIdx = row * 7 + col
-      if (dayIdx >= 30) {
-        colCells.push({ placeholder: true, key: `ph-${col}-${row}` })
-        continue
-      }
-      const dayMs = startDay.getTime() + dayIdx * 86400000
-      const d = new Date(dayMs)
-      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
-      const usd = dailyMap[key] ?? 0
+function Heatmap({ dailyMap, nowMs }) {
+  // GitHub-style: 52 columns (weeks) × 7 rows (Mon–Sun).
+  // End at today, start 52 weeks back. Each column = one calendar week.
+  const today = new Date(nowMs)
+  today.setHours(0, 0, 0, 0)
+  const todayDay = today.getDay() // 0=Sun
+  // Align to the start of the current week (Monday).
+  // If today is Sunday (0), go back 6 days; otherwise go back (day - 1) days.
+  const endMonday = new Date(today)
+  endMonday.setDate(today.getDate() - (todayDay === 0 ? 6 : todayDay - 1))
+  // Go back 52 weeks from that Monday.
+  const startMonday = new Date(endMonday)
+  startMonday.setDate(endMonday.getDate() - 52 * 7)
+
+  // Build 53 columns (week 0..52), each with 7 rows (Mon=0 .. Sun=6).
+  const cols = []
+  const monthLabels = [] // { colIdx, label }
+  let lastMonth = -1
+
+  for (let w = 0; w <= 52; w++) {
+    const weekStart = new Date(startMonday)
+    weekStart.setDate(startMonday.getDate() + w * 7)
+
+    // Month label: show when the first day of this week is in a new month.
+    const m = weekStart.getMonth()
+    if (m !== lastMonth) {
+      monthLabels.push({ col: w, label: MONTHS_SHORT[m] })
+      lastMonth = m
+    }
+
+    const weekCells = []
+    for (let d = 0; d < 7; d++) {
+      const dayMs = weekStart.getTime() + d * 86400000
+      const dt = new Date(dayMs)
+      const key = `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}-${String(dt.getDate()).padStart(2, '0')}`
       const inFuture = dayMs > nowMs
-      colCells.push({
+      const usd = dailyMap[key] ?? 0
+      weekCells.push({
         key,
         ts: dayMs,
-        usd,
         bucket: inFuture ? 'future' : cellBucket(usd),
         future: inFuture,
       })
     }
-    cells.push(colCells)
+    cols.push(weekCells)
   }
 
   return (
     <div className="intensity-heat-body">
-      <div className="intensity-heat-grid" role="grid">
-        {cells.map((col, ci) => (
-          <div key={ci} className="intensity-heat-col">
-            {col.map(c => {
-              if (c.placeholder) {
-                return <div key={c.key} className="intensity-heat-cell placeholder" aria-hidden="true" />
-              }
-              const bg = c.future ? 'transparent' : (CELL_COLORS[c.bucket] ?? CELL_COLORS.empty)
-              const border = c.future ? '1px dashed #e7e5e4' : '1px solid rgba(0,0,0,0.02)'
-              return (
-                <div
-                  key={c.key}
-                  className="intensity-heat-cell"
-                  style={{ background: bg, border }}
-                  title={MONTH_DAY(c.ts)}
-                />
-              )
-            })}
-          </div>
-        ))}
+      {/* Month labels */}
+      <div className="intensity-heat-months">
+        <div className="intensity-heat-weekday-spacer" />
+        <div className="intensity-heat-months-track">
+          {monthLabels.map((ml, i) => (
+            <span
+              key={i}
+              className="intensity-heat-month"
+              style={{ gridColumnStart: ml.col + 1 }}
+            >
+              {ml.label}
+            </span>
+          ))}
+        </div>
+      </div>
+      <div className="intensity-heat-grid-wrap">
+        {/* Weekday labels */}
+        <div className="intensity-heat-weekdays">
+          {WEEKDAY_LABELS.map((l, i) => (
+            <span key={i} className="intensity-heat-weekday">{l}</span>
+          ))}
+        </div>
+        {/* Grid */}
+        <div className="intensity-heat-grid" role="grid">
+          {cols.map((week, wi) => (
+            <div key={wi} className="intensity-heat-col">
+              {week.map(c => {
+                const bg = c.future ? 'transparent' : (CELL_COLORS[c.bucket] ?? CELL_COLORS.empty)
+                const border = c.future ? '1px dashed #e7e5e4' : 'none'
+                return (
+                  <div
+                    key={c.key}
+                    className={`intensity-heat-cell${c.future ? ' future' : ''}`}
+                    style={{ background: bg, border }}
+                    title={c.future ? '' : MONTH_DAY(c.ts)}
+                  />
+                )
+              })}
+            </div>
+          ))}
+        </div>
       </div>
       <div className="intensity-heat-legend">
         <span className="intensity-heat-legend-label">少</span>
@@ -138,9 +178,6 @@ function Heatmap({ dailyMap, cycleStart, cycleEnd, nowMs }) {
         <span className="intensity-heat-cell legend-cell" style={{ background: CELL_COLORS.high }} />
         <span className="intensity-heat-cell legend-cell" style={{ background: CELL_COLORS.xhigh }} />
         <span className="intensity-heat-legend-label">多</span>
-      </div>
-      <div className="intensity-heat-range">
-        周期：{SHORT(cycleStart)} – {SHORT(cycleEnd - 86400000)}
       </div>
     </div>
   )
@@ -166,7 +203,7 @@ export default function UsageIntensityView({ terminals, session }) {
 
   useEffect(() => {
     setLoading(true)
-    getUsage('30d', 'terminal')
+    getUsage('365d', 'terminal')
       .then(data => {
         setRecords(data.records ?? [])
         setLoading(false)
@@ -183,8 +220,8 @@ export default function UsageIntensityView({ terminals, session }) {
 
   // Per-terminal per-day map for the heatmap.
   const dailyByTerminal = useMemo(
-    () => aggregateDailyByTerminal(records, cycle.start),
-    [records, cycle.start]
+    () => aggregateDailyByTerminal(records, nowMs - 365 * 86400000),
+    [records, nowMs]
   )
 
   // Terminal list: only show terminals that belong to this user (already
@@ -256,7 +293,7 @@ export default function UsageIntensityView({ terminals, session }) {
             </div>
             <div className="intensity-heat-main">
               <div className="intensity-heat-main-title">{selectedName} — 近 30 天</div>
-              <Heatmap dailyMap={selectedDaily} cycleStart={cycle.start} cycleEnd={cycle.end} nowMs={nowMs} />
+              <Heatmap dailyMap={selectedDaily} nowMs={nowMs} />
             </div>
           </div>
         )}
