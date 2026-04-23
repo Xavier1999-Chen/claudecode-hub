@@ -1,5 +1,5 @@
-import { useState } from 'react'
-import { updateTerminal, forceOnline, forceOffline, deleteAccount, renameAccount, refreshAccountToken, syncAccountUsage, updateRelayModelMap } from '../api.js'
+import { useState, useEffect } from 'react'
+import { updateTerminal, forceOnline, forceOffline, deleteAccount, renameAccount, refreshAccountToken, syncAccountUsage, updateRelayModelMap, updateProbeModel, listRelayModels } from '../api.js'
 
 function fmtK(n) { if (!n) return '0'; return (n / 1000).toFixed(1) }
 function pct(used, limit) { if (!limit) return 0; return Math.min(100, Math.round(used / limit * 100)) }
@@ -23,9 +23,95 @@ function fmtReset(ts) {
   return h > 0 ? `${h}h ${m}m 后重置` : `${m}m 后重置`
 }
 
+// ── Relay health components ────────────────────────────────────────────────
+
+function useTtlCountdown(ttlMs) {
+  const [remaining, setRemaining] = useState(ttlMs ?? null)
+  useEffect(() => {
+    if (ttlMs == null) { setRemaining(null); return }
+    setRemaining(ttlMs)
+    const id = setInterval(() => setRemaining(r => (r != null && r > 0) ? r - 1000 : 0), 1000)
+    return () => clearInterval(id)
+  }, [ttlMs])
+  if (remaining == null) return ''
+  if (remaining <= 0) return '正在检查'
+  const s = Math.ceil(remaining / 1000)
+  return s >= 120 ? `${Math.ceil(s / 60)}min 后再次检查` : `${s}s 后再次检查`
+}
+
+function RelayHealthRow({ health }) {
+  const countdown = useTtlCountdown(health?.ttlMs ?? null)
+  if (!health) {
+    return <div className="relay-health-row unknown">⚪ 请先配置探测模型</div>
+  }
+  if (health.status === 'online') {
+    return (
+      <div className="relay-health-row online">
+        <span className="relay-health-dot dot-green" />
+        <span>在线</span>
+        <span className="relay-health-latency">{health.latencyMs}ms</span>
+        <span className="relay-health-model">{health.model}</span>
+        {countdown && <span className="relay-health-next">{countdown}</span>}
+      </div>
+    )
+  }
+  return (
+    <div className="relay-health-row offline">
+      <span className="relay-health-dot dot-red" />
+      <span>离线</span>
+      {health.error && <span className="relay-health-error" title={health.error}>{health.error.slice(0, 60)}</span>}
+      {countdown && <span className="relay-health-next">{countdown}</span>}
+    </div>
+  )
+}
+
+function ProbeModelModal({ acc, onSave, onClose }) {
+  const [models, setModels] = useState(null)
+  const [loading, setLoading] = useState(false)
+  const [selected, setSelected] = useState(acc.probeModel ?? '')
+  const [error, setError] = useState(null)
+
+  useEffect(() => {
+    let cancelled = false
+    setLoading(true)
+    setError(null)
+    listRelayModels(acc.id)
+      .then(data => { if (!cancelled) setModels(data.models ?? []) })
+      .catch(err => { if (!cancelled) { setError(err.message); setModels([]) } })
+      .finally(() => { if (!cancelled) setLoading(false) })
+    return () => { cancelled = true }
+  }, [acc.id])
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal-box" onClick={e => e.stopPropagation()}>
+        <h3 className="modal-title">设置探测模型</h3>
+        <p style={{ fontSize: 12, color: '#78716c', margin: '0 0 12px' }}>
+          选择用于健康检测的模型。"与 Opus 映射相同"表示使用模型映射中的 Opus 配置。
+        </p>
+        {loading && <div style={{ fontSize: 12, color: '#a8a29e' }}>加载模型列表…</div>}
+        {error && <div style={{ fontSize: 12, color: '#dc2626' }}>加载失败: {error}</div>}
+        <select
+          className="probe-model-select"
+          value={selected}
+          onChange={e => setSelected(e.target.value)}
+        >
+          <option value="">与 Opus 映射相同</option>
+          {models && models.map(m => <option key={m} value={m}>{m}</option>)}
+        </select>
+        <div style={{ display: 'flex', gap: 8, marginTop: 12, justifyContent: 'flex-end' }}>
+          <button className="btn btn-ghost" onClick={onClose}>取消</button>
+          <button className="btn btn-primary" onClick={() => onSave(selected || null)}>保存</button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // Relay card body with inline-editable model mapping
 function RelayCardBody({ acc, mounted, terms }) {
   const hasMap = acc.modelMap && Object.keys(acc.modelMap).length > 0
+  const hasProbeConfig = acc.probeModel || acc.modelMap?.opus
 
   return (
     <>
@@ -40,6 +126,7 @@ function RelayCardBody({ acc, mounted, terms }) {
         ) : (
           <div style={{ fontSize: 12, color: '#a8a29e' }}>无模型映射 · 原样透传</div>
         )}
+        <RelayHealthRow health={hasProbeConfig ? (acc.health ?? null) : null} />
       </div>
       {terms.length > 0 && (
         <div className="card-footer">
@@ -142,6 +229,13 @@ function AccountActions({ acc, onAction, onClose }) {
         )
       )}
 
+      {/* Probe model — relay only */}
+      {acc.type === 'relay' && (
+        <button className="action-btn" onClick={() => onAction('probe-modal')}>
+          🩺 设置探测模型
+        </button>
+      )}
+
       {/* Online / Offline toggle */}
       {exhausted ? (
         <button className="action-btn action-btn-success" disabled={busy === 'online'} onClick={() => run('online')}>
@@ -176,6 +270,7 @@ export default function AccountsTab({ accounts, terminals, onRefresh, onNewTermi
   const [expandedCard, setExpandedCard] = useState(null) // account id with open actions
   const [refreshingId, setRefreshingId] = useState(null) // account id being token-refreshed
   const [syncingId, setSyncingId] = useState(null)       // account id being usage-synced
+  const [probeModalAcc, setProbeModalAcc] = useState(null) // relay account for probe modal
 
   function selectTerminal(t) {
     if (selectedTerminal?.id === t.id) {
@@ -209,6 +304,11 @@ export default function AccountsTab({ accounts, terminals, onRefresh, onNewTermi
   }
 
   function statusDot(acc) {
+    if (acc.type === 'relay') {
+      if (acc.health?.status === 'offline') return 'dot-red'
+      if (acc.health?.status === 'online') return 'dot-green'
+      return 'dot-gray'
+    }
     if (acc.status === 'exhausted' || isRateLimited(acc)) return 'dot-red'
     if (acc.status === 'idle') return 'dot-green'
     return 'dot-gray'
@@ -284,6 +384,9 @@ export default function AccountsTab({ accounts, terminals, onRefresh, onNewTermi
       await renameAccount(acc.id, action.slice(7))
     } else if (action.startsWith('modelmap:')) {
       await updateRelayModelMap(acc.id, JSON.parse(action.slice(9)))
+    } else if (action === 'probe-modal') {
+      setProbeModalAcc(acc)
+      return
     }
     await onRefresh()
   }
@@ -411,24 +514,22 @@ export default function AccountsTab({ accounts, terminals, onRefresh, onNewTermi
                 <span className={`status-dot ${statusDot(acc)}`} />
                 {isAdmin && (
                   <>
-                    {/* Sync usage button — hidden for relay (no Anthropic rate-limit headers) */}
-                    {!isRelay && (
-                      <button
-                        className={`card-refresh-btn${syncingId === acc.id ? ' spinning' : ''}`}
-                        title="同步用量"
-                        onClick={async e => {
-                          e.stopPropagation()
-                          setSyncingId(acc.id)
-                          try {
-                            const updated = await syncAccountUsage(acc.id)
-                            await onRefresh()
-                          } finally { setSyncingId(null) }
+                    {/* Sync usage / health check button */}
+                    <button
+                      className={`card-refresh-btn${syncingId === acc.id ? ' spinning' : ''}`}
+                      title={isRelay ? '检测连通性' : '同步用量'}
+                      onClick={async e => {
+                        e.stopPropagation()
+                        setSyncingId(acc.id)
+                        try {
+                          const updated = await syncAccountUsage(acc.id)
+                          await onRefresh()
+                        } finally { setSyncingId(null) }
                         }}
                         disabled={syncingId === acc.id}
                       >
                         ↻
                       </button>
-                    )}
                     {/* Edit toggle button */}
                     <button
                       className="card-edit-btn"
@@ -500,6 +601,18 @@ export default function AccountsTab({ accounts, terminals, onRefresh, onNewTermi
           )
         })}
       </div>
+
+      {probeModalAcc && (
+        <ProbeModelModal
+          acc={probeModalAcc}
+          onSave={async (model) => {
+            await updateProbeModel(probeModalAcc.id, model)
+            setProbeModalAcc(null)
+            await onRefresh()
+          }}
+          onClose={() => setProbeModalAcc(null)}
+        />
+      )}
     </div>
   )
 }

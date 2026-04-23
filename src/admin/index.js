@@ -11,12 +11,17 @@ import { createLoginSession, importCredentials, startTmuxLogin, submitAuthCode, 
 import { requireAuth, requireApproved, requireAdmin } from './auth.js';
 import { isAccountCooling, reassignCoolingTerminals } from './reassignment.js';
 import { isOAuthRevoked } from '../proxy/permission-guard.js';
+import { syncRelayHealth, listClaudeModels, RELAY_HEALTH_POLL_MS } from './relay-health.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PORT = process.env.ADMIN_PORT ?? 3182;
 const DIST_DIR = join(__dirname, 'frontend', 'dist');
 const app = express();
 app.use(express.json());
+
+// In-memory relay health cache. Written by the backend poll timer and by
+// syncRateLimit(); read by sanitiseAccount() to merge health into API responses.
+const relayHealthCache = new Map(); // accountId → { status, latencyMs, model, error }
 
 // Serve React frontend static files (unauthenticated — SPA shell)
 app.use(express.static(DIST_DIR));
@@ -90,6 +95,10 @@ app.patch('/api/accounts/:id', requireAdmin, async (req, res) => {
   const acc = accounts.find(a => a.id === req.params.id);
   if (!acc) return res.status(404).json({ error: 'not_found' });
   if (req.body.nickname !== undefined) acc.nickname = req.body.nickname;
+  if (req.body.probeModel !== undefined && acc.type === 'relay') {
+    const v = req.body.probeModel;
+    acc.probeModel = (typeof v === 'string' && v.trim().length > 0) ? v.trim() : null;
+  }
   if (req.body.modelMap !== undefined && acc.type === 'relay') {
     const normalisedMap = {};
     if (req.body.modelMap && typeof req.body.modelMap === 'object') {
@@ -102,6 +111,20 @@ app.patch('/api/accounts/:id', requireAdmin, async (req, res) => {
   }
   await configStore.writeAccounts(accounts);
   res.json(sanitiseAccount(acc));
+});
+
+// List available claude models from a relay station's /v1/models endpoint.
+app.get('/api/accounts/:id/models', requireAdmin, async (req, res) => {
+  const accounts = await configStore.readAccounts();
+  const acc = accounts.find(a => a.id === req.params.id);
+  if (!acc) return res.status(404).json({ error: 'not_found' });
+  if (acc.type !== 'relay') return res.status(400).json({ error: 'not_relay' });
+  try {
+    const models = await listClaudeModels(acc);
+    res.json({ models });
+  } catch (err) {
+    res.status(502).json({ error: err.message });
+  }
 });
 
 app.post('/api/accounts/:id/force-online', requireAdmin, async (req, res) => {
@@ -356,8 +379,15 @@ app.post('/api/oauth/import-manual/:sessionId', requireAdmin, async (req, res) =
  * then update acc.rateLimit in-place. Non-fatal: errors are silently ignored.
  */
 async function syncRateLimit(acc) {
-  // Relay accounts have no Anthropic rate-limit headers to sync.
-  if (acc.type === 'relay') return;
+  // Relay accounts: probe health instead of reading Anthropic rate-limit headers.
+  if (acc.type === 'relay') {
+    await syncRelayHealth(acc);
+    if (acc.health) {
+      acc.health._probedAt = Date.now(); // backend timestamp for ttlMs calculation
+      relayHealthCache.set(acc.id, acc.health);
+    }
+    return;
+  }
   try {
     if (isExpired(acc)) {
       const update = await refreshToken(acc);
@@ -428,9 +458,16 @@ async function syncRateLimit(acc) {
 function sanitiseAccount(acc) {
   const { credentials, ...rest } = acc;
   if (acc.type === 'relay') {
+    const health = relayHealthCache.get(acc.id) ?? null;
+    // ttlMs: milliseconds until next backend poll cycle. Frontend uses this
+    // for a countdown timer that's immune to server-client clock drift.
+    const ttlMs = health
+      ? Math.max(0, RELAY_HEALTH_POLL_MS - (Date.now() - health._probedAt))
+      : null;
     return {
       ...rest,
       hasCredentials: !!credentials?.apiKey,
+      health: health ? { status: health.status, latencyMs: health.latencyMs, model: health.model, error: health.error, ttlMs } : null,
     };
   }
   return {
@@ -538,3 +575,23 @@ const HOST = process.env.ADMIN_HOST ?? '0.0.0.0';
 app.listen(PORT, HOST, () => {
   console.log(`[admin] listening on http://${HOST}:${PORT}`);
 });
+
+// ── Backend relay health poll ────────────────────────────────────────────────
+// Runs every 60s regardless of how many users are online. Each cycle probes
+// all relay accounts that have a probe model configured and updates the
+// relayHealthCache. Frontend just reads the cache via getAccounts.
+setInterval(async () => {
+  try {
+    const accounts = await configStore.readAccounts();
+    for (const acc of accounts) {
+      if (acc.type !== 'relay') continue;
+      await syncRelayHealth(acc);
+      if (acc.health) {
+        acc.health._probedAt = Date.now();
+        relayHealthCache.set(acc.id, acc.health);
+      }
+    }
+  } catch (err) {
+    console.error('[relay-poll] error:', err.message);
+  }
+}, RELAY_HEALTH_POLL_MS);
