@@ -161,6 +161,32 @@ export async function updateRelayModelMap(id, modelMap) {
   })
 }
 
+export async function updateProbeModel(id, probeModel) {
+  if (USE_MOCK) {
+    await delay()
+    const acc = _accounts.find(a => a.id === id)
+    if (acc) acc.probeModel = probeModel
+    return JSON.parse(JSON.stringify(acc))
+  }
+  return apiJson(`/api/accounts/${id}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ probeModel }),
+  })
+}
+
+export async function listRelayModels(id) {
+  if (USE_MOCK) {
+    await delay(300)
+    return { models: [
+      'claude-opus-4-7', 'claude-opus-4-6', 'claude-opus-4-5-20251101',
+      'claude-sonnet-4-6', 'claude-sonnet-4-5-20250929',
+      'claude-haiku-4-5-20251001',
+      'gpt-4o-mini', 'glm-5.1', 'gemini-pro',
+    ]}
+  }
+  return apiJson(`/api/accounts/${id}/models`)
+}
+
 export async function refreshAccountToken(id) {
   if (USE_MOCK) {
     await delay(600)

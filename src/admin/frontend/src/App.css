@@ -87,6 +87,19 @@ body {
 .badge-relay { background: #0891b2; color: white; }
 .relay-map-row { display: flex; align-items: center; gap: 6px; margin-bottom: 4px; }
 .relay-map-label { width: 56px; flex-shrink: 0; color: #78716c; font-weight: 500; }
+/* ── RELAY HEALTH ── */
+.relay-health-row { display: flex; align-items: center; gap: 6px; font-size: 12px; color: #78716c; margin-top: 8px; flex-wrap: wrap; }
+.relay-health-row.online { color: #16a34a; }
+.relay-health-row.offline { color: #dc2626; }
+.relay-health-row.unknown { color: #a8a29e; font-style: italic; }
+.relay-health-dot { width: 7px; height: 7px; border-radius: 50%; display: inline-block; flex-shrink: 0; }
+.relay-health-latency { color: #a8a29e; }
+.relay-health-model { color: #a8a29e; font-size: 11px; }
+.relay-health-error { color: #dc2626; max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.relay-health-next { color: #a8a29e; margin-left: auto; font-style: italic; }
+.probe-model-select { width: 100%; padding: 6px 8px; border: 1px solid #d6d3d1; border-radius: 6px; font-size: 13px; background: white; }
+.modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,.4); display: flex; align-items: center; justify-content: center; z-index: 200; }
+.modal-box { background: white; border-radius: 14px; padding: 24px; width: 420px; max-width: 95vw; }
 .status-dot { width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; }
 .dot-green { background: #22c55e; }
 .dot-red { background: #ef4444; }
