@@ -447,6 +447,7 @@ async function aggregateUsage(range, group) {
   const now = Date.now();
   const rangeMs = range === 'today'
     ? now - new Date().setHours(0, 0, 0, 0)
+    : range === '365d' ? 365 * 86400000
     : range === '30d' ? 30 * 86400000 : 7 * 86400000;
   const since = now - rangeMs;
   const prevSince = since - rangeMs;

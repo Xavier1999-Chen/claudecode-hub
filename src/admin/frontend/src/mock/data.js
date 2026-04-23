@@ -111,7 +111,7 @@ function makeRecords(days = 30) {
   return records
 }
 
-export const mockUsageRecords = makeRecords()
+export const mockUsageRecords = makeRecords(365)
 
 // Previous period records (for trend calculation)
-export const mockPrevRecords = makeRecords()
+export const mockPrevRecords = makeRecords(365)
