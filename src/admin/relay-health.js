@@ -11,6 +11,7 @@
 export const RELAY_HEALTH_POLL_MS = 60000;
 
 const PROBE_TIMEOUT_MS = 15000;
+const LIST_MODELS_TIMEOUT_MS = 10000;
 
 /**
  * Determine which model to use for the health probe.
@@ -40,7 +41,7 @@ export async function listRelayModels(acc, fetchFn) {
         'x-api-key': acc.credentials.apiKey,
         'anthropic-version': '2023-06-01',
       },
-      signal: AbortSignal.timeout(10000),
+      signal: AbortSignal.timeout(LIST_MODELS_TIMEOUT_MS),
     });
     if (!res.ok) return [];
     const data = await res.json();

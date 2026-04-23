@@ -50,10 +50,13 @@ function useTtlCountdown(ttlMs) {
   return s >= 120 ? `${Math.ceil(s / 60)}min 后再次检查` : `${s}s 后再次检查`
 }
 
-function RelayHealthRow({ health }) {
+function RelayHealthRow({ health, hasProbeConfig }) {
   const countdown = useTtlCountdown(health?.ttlMs ?? null)
-  if (!health) {
+  if (!hasProbeConfig) {
     return <div className="relay-health-row unknown">⚪ 请先配置探测模型</div>
+  }
+  if (!health) {
+    return <div className="relay-health-row unknown">⚪ 等待首次探测</div>
   }
   if (health.status === 'online') {
     return (
@@ -137,7 +140,7 @@ function RelayCardBody({ acc, mounted, terms }) {
         ) : (
           <div style={{ fontSize: 12, color: '#a8a29e' }}>无模型映射 · 原样透传</div>
         )}
-        <RelayHealthRow health={hasProbeConfig ? (acc.health ?? null) : null} />
+        <RelayHealthRow health={acc.health ?? null} hasProbeConfig={hasProbeConfig} />
       </div>
       {terms.length > 0 && (
         <div className="card-footer">
