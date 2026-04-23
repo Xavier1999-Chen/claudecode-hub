@@ -59,7 +59,7 @@ export const mockAccounts = [
       latencyMs: 234,
       model: 'claude-opus-4-7',
       error: null,
-      ttlMs: 42000,
+      nextCheckAt: now + 42000,
     },
   },
   {
@@ -77,7 +77,7 @@ export const mockAccounts = [
       latencyMs: 1834,
       model: 'claude-opus-4-6',
       error: 'HTTP 503: Service temporarily unavailable',
-      ttlMs: 12000,
+      nextCheckAt: now + 12000,
     },
   },
   {

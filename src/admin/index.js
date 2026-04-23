@@ -383,7 +383,7 @@ async function syncRateLimit(acc) {
   if (acc.type === 'relay') {
     await syncRelayHealth(acc);
     if (acc.health) {
-      acc.health._probedAt = Date.now(); // backend timestamp for ttlMs calculation
+      acc.health._nextCheckAt = Date.now() + RELAY_HEALTH_POLL_MS;
       relayHealthCache.set(acc.id, acc.health);
     }
     return;
@@ -459,15 +459,18 @@ function sanitiseAccount(acc) {
   const { credentials, ...rest } = acc;
   if (acc.type === 'relay') {
     const health = relayHealthCache.get(acc.id) ?? null;
-    // ttlMs: milliseconds until next backend poll cycle. Frontend uses this
-    // for a countdown timer that's immune to server-client clock drift.
-    const ttlMs = health
-      ? Math.max(0, RELAY_HEALTH_POLL_MS - (Date.now() - health._probedAt))
-      : null;
     return {
       ...rest,
       hasCredentials: !!credentials?.apiKey,
-      health: health ? { status: health.status, latencyMs: health.latencyMs, model: health.model, error: health.error, ttlMs } : null,
+      health: health
+        ? {
+            status: health.status,
+            latencyMs: health.latencyMs,
+            model: health.model,
+            error: health.error,
+            nextCheckAt: health._nextCheckAt,
+          }
+        : null,
     };
   }
   return {
@@ -587,7 +590,7 @@ setInterval(async () => {
       if (acc.type !== 'relay') continue;
       await syncRelayHealth(acc);
       if (acc.health) {
-        acc.health._probedAt = Date.now();
+        acc.health._nextCheckAt = Date.now() + RELAY_HEALTH_POLL_MS;
         relayHealthCache.set(acc.id, acc.health);
       }
     }

@@ -25,22 +25,21 @@ function fmtReset(ts) {
 
 // ── Relay health components ────────────────────────────────────────────────
 
-function useTtlCountdown(ttlMs) {
-  const [remaining, setRemaining] = useState(ttlMs ?? null)
+function useNextCheckCountdown(nextCheckAt) {
+  const [now, setNow] = useState(() => Date.now())
   useEffect(() => {
-    if (ttlMs == null) { setRemaining(null); return }
-    setRemaining(ttlMs)
-    const id = setInterval(() => setRemaining(r => (r != null && r > 0) ? r - 1000 : 0), 1000)
+    const id = setInterval(() => setNow(Date.now()), 1000)
     return () => clearInterval(id)
-  }, [ttlMs])
-  if (remaining == null) return ''
+  }, [])
+  if (!nextCheckAt) return ''
+  const remaining = nextCheckAt - now
   if (remaining <= 0) return '正在检查'
   const s = Math.ceil(remaining / 1000)
   return s >= 120 ? `${Math.ceil(s / 60)}min 后再次检查` : `${s}s 后再次检查`
 }
 
 function RelayHealthRow({ health }) {
-  const countdown = useTtlCountdown(health?.ttlMs ?? null)
+  const countdown = useNextCheckCountdown(health?.nextCheckAt ?? null)
   if (!health) {
     return <div className="relay-health-row unknown">⚪ 请先配置探测模型</div>
   }
