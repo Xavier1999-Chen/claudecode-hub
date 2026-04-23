@@ -1,8 +1,6 @@
 import { useState, useEffect } from 'react'
 import { updateTerminal, forceOnline, forceOffline, deleteAccount, renameAccount, refreshAccountToken, syncAccountUsage, updateRelayModelMap, updateProbeModel, listRelayModels } from '../api.js'
 
-function fmtK(n) { if (!n) return '0'; return (n / 1000).toFixed(1) }
-function pct(used, limit) { if (!limit) return 0; return Math.min(100, Math.round(used / limit * 100)) }
 function fmtExpiry(ts) {
   if (!ts) return null
   const diff = ts - Date.now()
@@ -39,8 +37,8 @@ function useTtlCountdown(ttlMs) {
       return prev
     })
   }, [ttlMs])
-  // Local tick every second
-  const [tick, setTick] = useState(0)
+  // Re-render once per second so `remaining` recomputes from Date.now()
+  const [, setTick] = useState(0)
   useEffect(() => {
     const id = setInterval(() => setTick(t => t + 1), 1000)
     return () => clearInterval(id)
@@ -281,7 +279,6 @@ export default function AccountsTab({ accounts, terminals, onRefresh, onNewTermi
   const [editingName, setEditingName] = useState(false)
   const [editNameValue, setEditNameValue] = useState('')
   const [expandedCard, setExpandedCard] = useState(null) // account id with open actions
-  const [refreshingId, setRefreshingId] = useState(null) // account id being token-refreshed
   const [syncingId, setSyncingId] = useState(null)       // account id being usage-synced
   const [probeModalAcc, setProbeModalAcc] = useState(null) // relay account for probe modal
 
@@ -535,14 +532,14 @@ export default function AccountsTab({ accounts, terminals, onRefresh, onNewTermi
                         e.stopPropagation()
                         setSyncingId(acc.id)
                         try {
-                          const updated = await syncAccountUsage(acc.id)
+                          await syncAccountUsage(acc.id)
                           await onRefresh()
                         } finally { setSyncingId(null) }
-                        }}
-                        disabled={syncingId === acc.id}
-                      >
-                        ↻
-                      </button>
+                      }}
+                      disabled={syncingId === acc.id}
+                    >
+                      ↻
+                    </button>
                     {/* Edit toggle button */}
                     <button
                       className="card-edit-btn"

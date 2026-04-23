@@ -378,14 +378,18 @@ app.post('/api/oauth/import-manual/:sessionId', requireAdmin, async (req, res) =
  * Make a minimal probe request to Anthropic to read current rate-limit headers,
  * then update acc.rateLimit in-place. Non-fatal: errors are silently ignored.
  */
+async function probeAndCacheRelay(acc) {
+  await syncRelayHealth(acc);
+  if (acc.health) {
+    acc.health._nextCheckAt = Date.now() + RELAY_HEALTH_POLL_MS;
+    relayHealthCache.set(acc.id, acc.health);
+  }
+}
+
 async function syncRateLimit(acc) {
   // Relay accounts: probe health instead of reading Anthropic rate-limit headers.
   if (acc.type === 'relay') {
-    await syncRelayHealth(acc);
-    if (acc.health) {
-      acc.health._nextCheckAt = Date.now() + RELAY_HEALTH_POLL_MS;
-      relayHealthCache.set(acc.id, acc.health);
-    }
+    await probeAndCacheRelay(acc);
     return;
   }
   try {
@@ -594,11 +598,7 @@ async function probeAllRelays() {
     const accounts = await configStore.readAccounts();
     for (const acc of accounts) {
       if (acc.type !== 'relay') continue;
-      await syncRelayHealth(acc);
-      if (acc.health) {
-        acc.health._nextCheckAt = Date.now() + RELAY_HEALTH_POLL_MS;
-        relayHealthCache.set(acc.id, acc.health);
-      }
+      await probeAndCacheRelay(acc);
     }
   } catch (err) {
     console.error('[relay-poll] error:', err.message);
