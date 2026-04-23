@@ -77,16 +77,16 @@ function Gauge({ usd }) {
 }
 
 function Heatmap({ dailyMap, cycleStart, cycleEnd, nowMs }) {
-  // Build the 30-day grid: column = week (0-4), row = weekday offset within week.
-  // Day index = col * 7 + row, capped at 30. The remaining 5 cells (index 30-34)
+  // Build the 30-day grid: 7 columns (weekdays) × 5 rows (weeks).
+  // Day index = row * 7 + col, capped at 30. The remaining 5 cells (index 30-34)
   // are rendered as neutral "out-of-cycle" placeholders.
   const startDay = new Date(cycleStart); startDay.setHours(0, 0, 0, 0)
 
   const cells = []
-  for (let col = 0; col < 5; col++) {
+  for (let col = 0; col < 7; col++) {
     const colCells = []
-    for (let row = 0; row < 7; row++) {
-      const dayIdx = col * 7 + row
+    for (let row = 0; row < 5; row++) {
+      const dayIdx = row * 7 + col
       if (dayIdx >= 30) {
         colCells.push({ placeholder: true, key: `ph-${col}-${row}` })
         continue
