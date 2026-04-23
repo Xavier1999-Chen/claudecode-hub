@@ -11,7 +11,7 @@ import { createLoginSession, importCredentials, startTmuxLogin, submitAuthCode, 
 import { requireAuth, requireApproved, requireAdmin } from './auth.js';
 import { isAccountCooling, reassignCoolingTerminals } from './reassignment.js';
 import { isOAuthRevoked } from '../proxy/permission-guard.js';
-import { syncRelayHealth, listClaudeModels, RELAY_HEALTH_POLL_MS } from './relay-health.js';
+import { syncRelayHealth, listRelayModels, RELAY_HEALTH_POLL_MS } from './relay-health.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PORT = process.env.ADMIN_PORT ?? 3182;
@@ -120,7 +120,7 @@ app.get('/api/accounts/:id/models', requireAdmin, async (req, res) => {
   if (!acc) return res.status(404).json({ error: 'not_found' });
   if (acc.type !== 'relay') return res.status(400).json({ error: 'not_relay' });
   try {
-    const models = await listClaudeModels(acc);
+    const models = await listRelayModels(acc);
     res.json({ models });
   } catch (err) {
     res.status(502).json({ error: err.message });

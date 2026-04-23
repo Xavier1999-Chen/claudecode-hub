@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { syncRelayHealth, listClaudeModels, pickProbeModel } from '../src/admin/relay-health.js';
+import { syncRelayHealth, listRelayModels, pickProbeModel } from '../src/admin/relay-health.js';
 
 // ── Helpers ───────────────────────────────────────────────────────────────
 
@@ -60,43 +60,44 @@ test('pickProbeModel: empty-string probeModel treated as unset', () => {
   assert.equal(pickProbeModel(acc), 'claude-opus-4-7');
 });
 
-// ── listClaudeModels ─────────────────────────────────────────────────────
+// ── listRelayModels ──────────────────────────────────────────────────────
 
-test('listClaudeModels: filters to claude models from /v1/models', async () => {
+test('listRelayModels: claude models first, then others', async () => {
   const acc = makeRelay();
   const fetch = mockFetch([{
     status: 200,
     json: { data: [
-      { id: 'claude-opus-4-7' },
-      { id: 'claude-sonnet-4-6' },
       { id: 'gpt-4o-mini' },
+      { id: 'claude-opus-4-7' },
+      { id: 'glm-5.1' },
+      { id: 'claude-sonnet-4-6' },
       { id: 'claude-haiku-4-5-20251001' },
     ]},
   }]);
-  const models = await listClaudeModels(acc, fetch);
-  assert.deepEqual(models, ['claude-opus-4-7', 'claude-sonnet-4-6', 'claude-haiku-4-5-20251001']);
+  const models = await listRelayModels(acc, fetch);
+  assert.deepEqual(models, ['claude-opus-4-7', 'claude-sonnet-4-6', 'claude-haiku-4-5-20251001', 'gpt-4o-mini', 'glm-5.1']);
 });
 
-test('listClaudeModels: sends correct url and headers', async () => {
+test('listRelayModels: sends correct url and headers', async () => {
   const acc = makeRelay({ baseUrl: 'https://my-relay.com/api' });
   const fetch = mockFetch([{ status: 200, json: { data: [] } }]);
-  await listClaudeModels(acc, fetch);
+  await listRelayModels(acc, fetch);
   assert.equal(fetch.calls[0].url, 'https://my-relay.com/api/v1/models');
   assert.equal(fetch.calls[0].opts.headers['x-api-key'], 'sk-test-key');
 });
 
-test('listClaudeModels: returns empty array on network error', async () => {
+test('listRelayModels: returns empty array on network error', async () => {
   const acc = makeRelay();
   const fetch = mockFetch([{ throw: new Error('ECONNREFUSED') }]);
-  const models = await listClaudeModels(acc, fetch);
+  const models = await listRelayModels(acc, fetch);
   assert.deepEqual(models, []);
 });
 
-test('listClaudeModels: handles flat array response', async () => {
+test('listRelayModels: handles flat array response', async () => {
   const acc = makeRelay();
   const fetch = mockFetch([{ status: 200, json: [{ id: 'claude-opus-4-7' }, { id: 'gemini-pro' }] }]);
-  const models = await listClaudeModels(acc, fetch);
-  assert.deepEqual(models, ['claude-opus-4-7']);
+  const models = await listRelayModels(acc, fetch);
+  assert.deepEqual(models, ['claude-opus-4-7', 'gemini-pro']);
 });
 
 // ── syncRelayHealth ──────────────────────────────────────────────────────

@@ -181,6 +181,7 @@ export async function listRelayModels(id) {
       'claude-opus-4-7', 'claude-opus-4-6', 'claude-opus-4-5-20251101',
       'claude-sonnet-4-6', 'claude-sonnet-4-5-20250929',
       'claude-haiku-4-5-20251001',
+      'gpt-4o-mini', 'glm-5.1', 'gemini-pro',
     ]}
   }
   return apiJson(`/api/accounts/${id}/models`)

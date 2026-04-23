@@ -27,10 +27,10 @@ export function pickProbeModel(acc) {
 }
 
 /**
- * Fetch the relay's /v1/models endpoint and return an array of model ids
- * that contain "claude". Returns [] on any error.
+ * Fetch the relay's /v1/models endpoint and return all model ids,
+ * with claude models sorted to the front. Returns [] on any error.
  */
-export async function listClaudeModels(acc, fetchFn) {
+export async function listRelayModels(acc, fetchFn) {
   const fetch = fetchFn ?? (await import('node-fetch')).default;
   const url = acc.baseUrl.replace(/\/$/, '') + '/v1/models';
   try {
@@ -46,9 +46,12 @@ export async function listClaudeModels(acc, fetchFn) {
     const data = await res.json();
     const models = Array.isArray(data) ? data : (data?.data ?? []);
     if (!Array.isArray(models)) return [];
-    return models
+    const ids = models
       .map(m => (typeof m === 'string' ? m : m?.id))
-      .filter(id => typeof id === 'string' && id.includes('claude'));
+      .filter(id => typeof id === 'string');
+    const claude = ids.filter(id => id.includes('claude'));
+    const others = ids.filter(id => !id.includes('claude'));
+    return [...claude, ...others];
   } catch {
     return [];
   }
