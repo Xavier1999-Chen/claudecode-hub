@@ -4,6 +4,7 @@ import Nav from './components/Nav.jsx'
 import AccountsTab from './components/AccountsTab.jsx'
 import TerminalsTab from './components/TerminalsTab.jsx'
 import UsageTab from './components/UsageTab.jsx'
+import UsageIntensityView from './components/UsageIntensityView.jsx'
 import GuideTab from './components/GuideTab.jsx'
 import OAuthModal from './components/OAuthModal.jsx'
 import RelayModal from './components/RelayModal.jsx'
@@ -194,8 +195,9 @@ export default function App() {
         />
       )}
 
-      {tab === 'usage' && (
-        <UsageTab accounts={accounts} terminals={terminals} />
+      {tab === 'usage' && (isAdmin
+        ? <UsageTab accounts={accounts} terminals={terminals} />
+        : <UsageIntensityView terminals={terminals} session={session} />
       )}
 
       {tab === 'guide' && <GuideTab />}
