@@ -144,8 +144,8 @@ app.post('/api/accounts/:id/force-offline', requireAdmin, async (req, res) => {
   if (!acc) return res.status(404).json({ error: 'not_found' });
   acc.status = 'exhausted';
   await configStore.writeAccounts(accounts);
-  // Force-offline: only reassign auto-mode terminals
-  await reassignTerminals(req.params.id, accounts.filter(a => a.id !== req.params.id), ['auto']);
+  // Force-offline: reassign all terminals (auto + manual) away from the dead account
+  await reassignTerminals(req.params.id, accounts.filter(a => a.id !== req.params.id), null);
   res.json(sanitiseAccount(acc));
 });
 
@@ -612,7 +612,7 @@ app.post('/_internal/report-exhausted', async (req, res) => {
     acc.plan = 'free';
     await configStore.writeAccounts(accounts);
     // Reassign all terminals (auto + manual) away from the dead account
-    await reassignTerminals(accountId, accounts);
+    await reassignTerminals(accountId, accounts, null);
     res.json({ ok: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
