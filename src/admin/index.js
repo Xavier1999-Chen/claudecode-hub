@@ -15,6 +15,7 @@ import { syncRelayHealth, listRelayModels, RELAY_HEALTH_POLL_MS } from './relay-
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PORT = process.env.ADMIN_PORT ?? 3182;
+const PROXY_INTERNAL_URL = process.env.PROXY_INTERNAL_URL ?? 'http://localhost:3180';
 const DIST_DIR = join(__dirname, 'frontend', 'dist');
 const app = express();
 app.use(express.json());
@@ -143,8 +144,8 @@ app.post('/api/accounts/:id/force-offline', requireAdmin, async (req, res) => {
   if (!acc) return res.status(404).json({ error: 'not_found' });
   acc.status = 'exhausted';
   await configStore.writeAccounts(accounts);
-  // Force-offline: only reassign auto-mode terminals
-  await reassignTerminals(req.params.id, accounts.filter(a => a.id !== req.params.id), ['auto']);
+  // Force-offline: reassign all terminals (auto + manual) away from the dead account
+  await reassignTerminals(req.params.id, accounts.filter(a => a.id !== req.params.id), null);
   res.json(sanitiseAccount(acc));
 });
 
@@ -462,10 +463,12 @@ async function syncRateLimit(acc) {
 function sanitiseAccount(acc) {
   const { credentials, ...rest } = acc;
   if (acc.type === 'relay') {
+    // Exhausted relays get no health data — the account is dead, don't
+    // show stale probe results or countdown timers.
+    if (acc.status === 'exhausted') {
+      return { ...rest, hasCredentials: !!credentials?.apiKey, health: null };
+    }
     const health = relayHealthCache.get(acc.id) ?? null;
-    // ttlMs: remaining ms until next probe. Recalculated on every getAccounts
-    // call so the frontend always gets a fresh value. Frontend uses
-    // (ttlMs - local elapsed) for countdown — immune to clock drift.
     const ttlMs = health
       ? Math.max(0, health._nextCheckAt - Date.now())
       : null;
@@ -582,12 +585,87 @@ app.post('/api/sync-usage-all', requireAdmin, async (_req, res) => {
   }
 });
 
+// ── Internal API (called by proxy, no auth) ──────────────────────────────
+
+/**
+ * Flush proxy in-memory terminal state (lastUsedAt, fallback accountId) to
+ * disk. Called on a 30s timer for display freshness.
+ */
+async function syncProxyTerminals() {
+  try {
+    const fetch = (await import('node-fetch')).default;
+    const res = await fetch(`${PROXY_INTERNAL_URL}/_internal/sync-terminals`, {
+      method: 'POST', timeout: 5000,
+    });
+    if (!res.ok) console.error(`[admin] sync proxy terminals: HTTP ${res.status}`);
+  } catch { /* proxy may not be running; non-fatal */ }
+}
+
+// Called by proxy when it detects a 403 permission_error (OAuth revoked)
+// or the circuit breaker opens for an account (issue #42).
+app.post('/_internal/report-exhausted', async (req, res) => {
+  try {
+    const { accountId } = req.body;
+    const accounts = await configStore.readAccounts();
+    const acc = accounts.find(a => a.id === accountId);
+    if (!acc) return res.json({ ok: true, reason: 'not_found' });
+    if (acc.status === 'exhausted') return res.json({ ok: true, reason: 'already_exhausted' });
+    acc.status = 'exhausted';
+    acc.plan = 'free';
+    await configStore.writeAccounts(accounts);
+    // Reassign all terminals (auto + manual) away from the dead account
+    await reassignTerminals(accountId, accounts, null);
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Called by proxy on 429/529 fallback — terminal.accountId changed in memory.
+app.post('/_internal/report-fallback', async (req, res) => {
+  try {
+    const { terminalId, accountId } = req.body;
+    const terminals = await configStore.readTerminals();
+    const t = terminals.find(t => t.id === terminalId);
+    if (!t) return res.json({ ok: true, reason: 'terminal_not_found' });
+    t.accountId = accountId;
+    t.lastUsedAt = Date.now();
+    await configStore.writeTerminals(terminals);
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Called by proxy after OAuth token refresh — admin patches credentials only.
+app.post('/_internal/report-credentials', async (req, res) => {
+  try {
+    const { accountId, credentials } = req.body;
+    const accounts = await configStore.readAccounts();
+    const acc = accounts.find(a => a.id === accountId);
+    if (!acc) return res.json({ ok: true, reason: 'not_found' });
+    Object.assign(acc.credentials, credentials);
+    await configStore.writeAccounts(accounts);
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── Public routes ────────────────────────────────────────────────────────
+
 // Bind to all interfaces — /api/* is protected by Supabase JWT auth (see auth.js).
 // Override with ADMIN_HOST=127.0.0.1 to restrict to localhost only.
 const HOST = process.env.ADMIN_HOST ?? '0.0.0.0';
 app.listen(PORT, HOST, () => {
   console.log(`[admin] listening on http://${HOST}:${PORT}`);
 });
+
+// Poll proxy for terminal lastUsedAt display freshness (issue #42).
+// Critical events (exhausted / fallback / credentials) are pushed by the
+// proxy via /_internal/report-* endpoints; this timer only fills in the
+// per-request lastUsedAt timestamps that are too frequent to push.
+setInterval(syncProxyTerminals, 30_000).unref();
 
 // ── Backend relay health poll ────────────────────────────────────────────────
 // Runs every 60s regardless of how many users are online. Each cycle probes
@@ -598,6 +676,7 @@ async function probeAllRelays() {
     const accounts = await configStore.readAccounts();
     for (const acc of accounts) {
       if (acc.type !== 'relay') continue;
+      if (acc.status === 'exhausted') continue;
       await probeAndCacheRelay(acc);
     }
   } catch (err) {

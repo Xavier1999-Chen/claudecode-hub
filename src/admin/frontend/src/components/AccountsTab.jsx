@@ -62,7 +62,7 @@ function RelayHealthRow({ health, hasProbeConfig }) {
     return (
       <div className="relay-health-row online">
         <span className="relay-health-dot dot-green" />
-        <span>在线</span>
+        <span>连通</span>
         <span className="relay-health-latency">{health.latencyMs}ms</span>
         <span className="relay-health-model">{health.model}</span>
         {countdown && <span className="relay-health-next">{countdown}</span>}
@@ -72,7 +72,7 @@ function RelayHealthRow({ health, hasProbeConfig }) {
   return (
     <div className="relay-health-row offline">
       <span className="relay-health-dot dot-red" />
-      <span>离线</span>
+      <span>中断</span>
       {health.error && <span className="relay-health-error" title={health.error}>{health.error.slice(0, 60)}</span>}
       {countdown && <span className="relay-health-next">{countdown}</span>}
     </div>
@@ -318,6 +318,7 @@ export default function AccountsTab({ accounts, terminals, onRefresh, onNewTermi
 
   function statusDot(acc) {
     if (acc.type === 'relay') {
+      if (acc.status === 'exhausted') return 'dot-red'
       if (acc.health?.status === 'offline') return 'dot-red'
       if (acc.health?.status === 'online') return 'dot-green'
       return 'dot-gray'
