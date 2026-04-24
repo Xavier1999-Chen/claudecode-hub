@@ -8,10 +8,12 @@ export class CircuitBreaker {
   #openedAt = null;
   #threshold;
   #timeout;
+  #onOpen;
 
-  constructor({ threshold = 3, timeout = 60000 } = {}) {
+  constructor({ threshold = 3, timeout = 60000, onOpen = null } = {}) {
     this.#threshold = threshold;
     this.#timeout = timeout;
+    this.#onOpen = onOpen;
   }
 
   canRequest() {
@@ -36,9 +38,11 @@ export class CircuitBreaker {
   recordFailure() {
     this.#failures++;
     if (this.#state === HALF_OPEN || this.#failures >= this.#threshold) {
+      const wasAlreadyOpen = this.#state === OPEN;
       this.#state = OPEN;
       this.#openedAt = Date.now();
       this.#failures = 0;
+      if (!wasAlreadyOpen && this.#onOpen) this.#onOpen();
     }
   }
 

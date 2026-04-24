@@ -12,13 +12,21 @@ export class AccountPool {
   #configStore;
   #watcher = null;
   #refreshTimer = null;
+  #onAccountExhausted;
+  #onCredentialsRefreshed;
+  #refreshToken;
 
   /**
-   * @param {{ accounts?: object[], terminals?: object[], configStore?: object }} opts
-   *   Pass accounts/terminals directly for testing; omit to load from disk.
+   * @param {{ accounts?: object[], terminals?: object[], configStore?: object,
+   *   onAccountExhausted?: (id: string) => Promise<void>,
+   *   onCredentialsRefreshed?: (id: string, creds: object) => Promise<void>,
+   *   refreshToken?: typeof refreshToken }} opts
    */
   constructor(opts = {}) {
     this.#configStore = opts.configStore ?? configStore;
+    this.#onAccountExhausted = opts.onAccountExhausted ?? null;
+    this.#onCredentialsRefreshed = opts.onCredentialsRefreshed ?? null;
+    this.#refreshToken = opts.refreshToken ?? refreshToken;
     if (opts.accounts) {
       this.#accounts = opts.accounts;
     }
@@ -142,16 +150,11 @@ export class AccountPool {
     const acc = this.#accounts.find(a => a.id === accountId);
     if (!acc) return;
     acc.status = 'exhausted';
-    acc.plan = 'free';   // OAuth revocation typically means the org lost its paid plan
-    try {
-      const disk = await this.#configStore.readAccounts();
-      const onDisk = disk.find(a => a.id === accountId);
-      if (onDisk && (onDisk.status !== 'exhausted' || onDisk.plan !== 'free')) {
-        onDisk.status = 'exhausted';
-        onDisk.plan = 'free';
-        await this.#configStore.writeAccounts(disk);
-      }
-    } catch { /* non-fatal: admin will persist on next probe */ }
+    acc.plan = 'free';
+    // Notify admin via callback; admin is the sole disk writer (issue #42).
+    if (this.#onAccountExhausted) {
+      Promise.resolve(this.#onAccountExhausted(accountId)).catch(() => {});
+    }
   }
 
   /**
@@ -162,9 +165,12 @@ export class AccountPool {
   async ensureFreshToken(account) {
     if (account.type === 'relay') return account;
     if (!isExpired(account)) return account;
-    const update = await refreshToken(account);
+    const update = await this.#refreshToken(account);
     Object.assign(account.credentials, update.credentials);
-    await this.#configStore.writeAccounts(this.#accounts).catch(() => {});
+    // Notify admin via callback; admin is the sole disk writer (issue #42).
+    if (this.#onCredentialsRefreshed) {
+      Promise.resolve(this.#onCredentialsRefreshed(account.id, account.credentials)).catch(() => {});
+    }
     return account;
   }
 

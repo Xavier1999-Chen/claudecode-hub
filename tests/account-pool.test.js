@@ -245,3 +245,110 @@ test('updateRateLimit updates account in memory', () => {
   assert.equal(updated.rateLimit.window5h.utilization, 0.3);
   assert.equal(updated.rateLimit.window5h.status, 'allowed');
 });
+
+// ── Issue #42: Single-writer callbacks ─────────────────────────────────
+
+test('ensureFreshToken calls onCredentialsRefreshed instead of writing to disk', async () => {
+  const newCreds = { accessToken: 'new-tok', refreshToken: 'new-ref', expiresAt: Date.now() + 3600000, scopes: ['user:inference'] };
+
+  const writtenAccounts = [];
+  const refreshedCall = { called: false, accountId: null, credentials: null };
+  const mockStore = {
+    readAccounts: async () => [],
+    writeAccounts: async (data) => { writtenAccounts.push(data); },
+  };
+
+  const expiredAcc = makeAccount('acc_1', {});
+  expiredAcc.credentials.expiresAt = Date.now() - 1000;
+
+  const pool = new AccountPool({
+    accounts: [expiredAcc],
+    terminals: [],
+    configStore: mockStore,
+    refreshToken: async () => ({ credentials: newCreds }),
+    onCredentialsRefreshed: (accountId, credentials) => {
+      refreshedCall.called = true;
+      refreshedCall.accountId = accountId;
+      refreshedCall.credentials = credentials;
+    },
+  });
+
+  const result = await pool.ensureFreshToken(expiredAcc);
+
+  assert.equal(refreshedCall.called, true, 'onCredentialsRefreshed should be called');
+  assert.equal(refreshedCall.accountId, 'acc_1');
+  assert.equal(refreshedCall.credentials.accessToken, 'new-tok');
+  assert.equal(writtenAccounts.length, 0, 'writeAccounts must NOT be called');
+  assert.equal(result.credentials.accessToken, 'new-tok', 'in-memory credentials still updated');
+});
+
+test('markUnauthorized calls onAccountExhausted instead of writing to disk', async () => {
+  const writtenAccounts = [];
+  const exhaustedCall = { called: false, accountId: null };
+  const mockStore = {
+    readAccounts: async () => [],
+    writeAccounts: async (data) => { writtenAccounts.push(data); },
+  };
+
+  const pool = new AccountPool({
+    accounts: [makeAccount('acc_1'), makeAccount('acc_2')],
+    terminals: [],
+    configStore: mockStore,
+    onAccountExhausted: (accountId) => {
+      exhaustedCall.called = true;
+      exhaustedCall.accountId = accountId;
+    },
+  });
+
+  await pool.markUnauthorized('acc_1');
+
+  assert.equal(exhaustedCall.called, true, 'onAccountExhausted should be called');
+  assert.equal(exhaustedCall.accountId, 'acc_1');
+  assert.equal(writtenAccounts.length, 0, 'writeAccounts must NOT be called');
+  // In-memory state still updated (proxy routing needs this immediately)
+  assert.equal(pool.getAccount('acc_1').status, 'exhausted');
+  assert.equal(pool.getAccount('acc_1').plan, 'free');
+  assert.equal(pool.getAccount('acc_2').status, 'idle');
+});
+
+test('ensureFreshToken works without onCredentialsRefreshed callback', async () => {
+  const mockStore = {
+    readAccounts: async () => [],
+    writeAccounts: async () => {},
+  };
+
+  const expiredAcc = makeAccount('acc_1', {});
+  expiredAcc.credentials.expiresAt = Date.now() - 1000;
+
+  const pool = new AccountPool({
+    accounts: [expiredAcc],
+    terminals: [],
+    configStore: mockStore,
+    refreshToken: async () => ({
+      credentials: { accessToken: 'new-tok', refreshToken: 'ref', expiresAt: Date.now() + 3600000 },
+    }),
+    // onCredentialsRefreshed NOT provided
+  });
+
+  const result = await pool.ensureFreshToken(expiredAcc);
+  assert.equal(result.credentials.accessToken, 'new-tok');
+  // No exception thrown is the test
+});
+
+test('markUnauthorized works without onAccountExhausted callback', async () => {
+  const mockStore = {
+    readAccounts: async () => [],
+    writeAccounts: async () => {},
+  };
+
+  const pool = new AccountPool({
+    accounts: [makeAccount('acc_1')],
+    terminals: [],
+    configStore: mockStore,
+    // onAccountExhausted NOT provided
+  });
+
+  await pool.markUnauthorized('acc_1');
+  assert.equal(pool.getAccount('acc_1').status, 'exhausted');
+  // No exception thrown is the test
+});

@@ -146,6 +146,7 @@ export async function forwardRequest(req, res, account, terminalId, pool, triedI
       console.log(`[fwd] retry after credential reload: ${upRes.status}`);
     } catch (err) {
       console.error(`[fwd] credential reload failed: ${err.message}`);
+      pool.getCircuitBreaker(account.id).recordFailure();
       res.status(401).json({ error: 'authentication_error', message: err.message });
       return;
     }
@@ -169,6 +170,8 @@ export async function forwardRequest(req, res, account, terminalId, pool, triedI
       return;
     }
     // Non-revocation 403 (e.g. model access denied for a specific request) —
+    // record as failure so repeated issues trip the circuit breaker.
+    pool.getCircuitBreaker(account.id).recordFailure();
     // forward the already-consumed body through to the client as-is.
     for (const [k, v] of upRes.headers.entries()) {
       if (!HOP_BY_HOP.has(k.toLowerCase())) res.setHeader(k, v);
@@ -202,6 +205,10 @@ export async function forwardRequest(req, res, account, terminalId, pool, triedI
     // Update rate limit headers
     const headers = Object.fromEntries(upRes.headers.entries());
     pool.updateRateLimit(account.id, headers);
+  } else if (![401, 403, 429, 529].includes(upRes.status)) {
+    // 400/402/5xx etc. — non-transient failures that should count toward circuit breaker.
+    // 401 skipped: token may simply be expired; 403/429/529 handled above.
+    pool.getCircuitBreaker(account.id).recordFailure();
   }
 
   // Forward response headers
