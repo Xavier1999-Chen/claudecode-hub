@@ -352,3 +352,50 @@ test('updateRateLimit updates account in memory', () => {
   assert.equal(updated.rateLimit.window5h.utilization, 0.3);
   assert.equal(updated.rateLimit.window5h.status, 'allowed');
 });
+
+// ── markUnauthorized retry ────────────────────────────────────────────────
+
+test('markUnauthorized retries disk write on failure', async () => {
+  let writeAttempts = 0;
+  const mockStore = {
+    readAccounts: async () => [makeAccount('acc_1', { status: 'idle', plan: 'pro' })],
+    writeAccounts: async () => {
+      writeAttempts++;
+      if (writeAttempts < 3) throw new Error('disk write failed');
+    },
+  };
+  const pool = new AccountPool({
+    accounts: [makeAccount('acc_1', { status: 'idle', plan: 'pro' })],
+    terminals: [],
+    configStore: mockStore,
+  });
+  await pool.markUnauthorized('acc_1');
+  assert.equal(writeAttempts, 3, 'should retry until success');
+  assert.equal(pool.getAccount('acc_1').status, 'exhausted');
+  assert.equal(pool.getAccount('acc_1').plan, 'free');
+});
+
+test('markUnauthorized succeeds on first attempt', async () => {
+  let writeAttempts = 0;
+  const mockStore = {
+    readAccounts: async () => [makeAccount('acc_1', { status: 'idle', plan: 'pro' })],
+    writeAccounts: async () => { writeAttempts++; },
+  };
+  const pool = new AccountPool({
+    accounts: [makeAccount('acc_1', { status: 'idle', plan: 'pro' })],
+    terminals: [],
+    configStore: mockStore,
+  });
+  await pool.markUnauthorized('acc_1');
+  assert.equal(writeAttempts, 1);
+  assert.equal(pool.getAccount('acc_1').status, 'exhausted');
+});
+
+test('markUnauthorized handles missing account gracefully', async () => {
+  const pool = new AccountPool({
+    accounts: [],
+    terminals: [],
+  });
+  // Should not throw
+  await pool.markUnauthorized('nonexistent');
+});

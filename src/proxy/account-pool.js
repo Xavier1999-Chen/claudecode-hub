@@ -143,15 +143,22 @@ export class AccountPool {
     if (!acc) return;
     acc.status = 'exhausted';
     acc.plan = 'free';   // OAuth revocation typically means the org lost its paid plan
-    try {
-      const disk = await this.#configStore.readAccounts();
-      const onDisk = disk.find(a => a.id === accountId);
-      if (onDisk && (onDisk.status !== 'exhausted' || onDisk.plan !== 'free')) {
-        onDisk.status = 'exhausted';
-        onDisk.plan = 'free';
-        await this.#configStore.writeAccounts(disk);
+    // Retry up to 3 times so _mergeFromDisk doesn't revert in-memory state
+    // when a disk write fails transiently.
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        const disk = await this.#configStore.readAccounts();
+        const onDisk = disk.find(a => a.id === accountId);
+        if (onDisk && (onDisk.status !== 'exhausted' || onDisk.plan !== 'free')) {
+          onDisk.status = 'exhausted';
+          onDisk.plan = 'free';
+          await this.#configStore.writeAccounts(disk);
+        }
+        break;
+      } catch {
+        if (attempt < 2) await new Promise(r => setTimeout(r, 100 * (attempt + 1)));
       }
-    } catch { /* non-fatal: admin will persist on next probe */ }
+    }
   }
 
   /**
@@ -164,6 +171,9 @@ export class AccountPool {
     if (!isExpired(account)) return account;
     const update = await refreshToken(account);
     Object.assign(account.credentials, update.credentials);
+    // Guard: if account was concurrently deleted (merge picked up admin deletion),
+    // don't write — it would resurrect the deleted account on disk.
+    if (!this.#accounts.some(a => a.id === account.id)) return account;
     // Read-patch-write: only persist credentials, never overwrite admin-managed
     // fields (modelMap, probeModel, nickname, etc.) with stale in-memory values.
     try {

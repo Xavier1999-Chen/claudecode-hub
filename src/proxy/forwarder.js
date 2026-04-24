@@ -151,12 +151,39 @@ export async function forwardRequest(req, res, account, terminalId, pool, triedI
     }
   }
 
+  // HTTP 400 may indicate a permanently disabled/banned account
+  // (e.g. "This organization has been disabled.").
+  // Check before generic 4xx handling so we can mark it exhausted.
+  if (upRes.status === 400) {
+    const bodyText = await upRes.text();
+    const respHeaders = Object.fromEntries(upRes.headers.entries());
+    if (isOAuthRevoked(upRes.status, bodyText, respHeaders)) {
+      console.warn(`[fwd] 400 disabled/banned on ${account.email ?? account.id}, marking exhausted and falling back`);
+      pool.markUnauthorized(account.id).catch(() => {});
+      triedIds.add(account.id);
+      const fallback = pool.selectFallback(triedIds);
+      if (fallback) {
+        onFallback?.(fallback);
+        return forwardRequest(req, res, fallback, terminalId, pool, triedIds, onFallback);
+      }
+      res.status(503).json({ error: 'no_available_accounts', message: 'account disabled and no fallback available' });
+      return;
+    }
+    // Not a ban — forward body as-is
+    for (const [k, v] of upRes.headers.entries()) {
+      if (!HOP_BY_HOP.has(k.toLowerCase())) res.setHeader(k, v);
+    }
+    res.status(400).end(bodyText);
+    return;
+  }
+
   // Permanent authorization failure: OAuth has been revoked at Anthropic (org
   // banned, plan downgraded). x-should-retry: false — don't retry this account.
   // Mark it exhausted so future selections skip it, then fall back silently.
   if (upRes.status === 403) {
     const bodyText = await upRes.text();
-    if (isOAuthRevoked(upRes.status, bodyText)) {
+    const respHeaders = Object.fromEntries(upRes.headers.entries());
+    if (isOAuthRevoked(upRes.status, bodyText, respHeaders)) {
       console.warn(`[fwd] 403 permission_error on ${account.email ?? account.id}, marking exhausted and falling back`);
       pool.markUnauthorized(account.id).catch(() => {});
       triedIds.add(account.id);
