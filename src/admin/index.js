@@ -143,7 +143,6 @@ app.post('/api/accounts/:id/force-offline', requireAdmin, async (req, res) => {
   const acc = accounts.find(a => a.id === req.params.id);
   if (!acc) return res.status(404).json({ error: 'not_found' });
   acc.status = 'exhausted';
-  relayHealthCache.delete(acc.id); // stop showing stale probe results
   await configStore.writeAccounts(accounts);
   // Force-offline: reassign all terminals (auto + manual) away from the dead account
   await reassignTerminals(req.params.id, accounts.filter(a => a.id !== req.params.id), null);
@@ -611,7 +610,6 @@ app.post('/_internal/report-exhausted', async (req, res) => {
     if (acc.status === 'exhausted') return res.json({ ok: true, reason: 'already_exhausted' });
     acc.status = 'exhausted';
     acc.plan = 'free';
-    relayHealthCache.delete(acc.id);
     await configStore.writeAccounts(accounts);
     // Reassign all terminals (auto + manual) away from the dead account
     await reassignTerminals(accountId, accounts, null);
@@ -676,7 +674,6 @@ async function probeAllRelays() {
     const accounts = await configStore.readAccounts();
     for (const acc of accounts) {
       if (acc.type !== 'relay') continue;
-      if (acc.status === 'exhausted') continue;
       await probeAndCacheRelay(acc);
     }
   } catch (err) {
