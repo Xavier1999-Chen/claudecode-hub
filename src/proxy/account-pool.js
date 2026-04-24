@@ -305,38 +305,38 @@ export class AccountPool {
     return this.#rateQueues.get(accountId);
   }
 
-  #startWatch() {
-    // Merge helper: sync credentials and account list from disk without overwriting
-    // in-memory rate-limit state (which is fresher from actual API response headers).
-    const mergeFromDisk = async () => {
-      try {
-        const fresh = await this.#configStore.readAccounts();
-        for (const freshAcc of fresh) {
-          const mem = this.#accounts.find(a => a.id === freshAcc.id);
-          if (mem) {
-            // Only update credentials if they changed (admin refreshed token)
-            if (freshAcc.credentials?.accessToken !== mem.credentials?.accessToken) {
-              Object.assign(mem.credentials, freshAcc.credentials);
-            }
+  // Sync credentials, status, and account list from disk without overwriting
+  // in-memory rate-limit state (which is fresher from actual API response headers).
+  // Exposed (underscore-prefixed) so tests can drive it directly.
+  async _mergeFromDisk() {
+    try {
+      const fresh = await this.#configStore.readAccounts();
+      for (const freshAcc of fresh) {
+        const mem = this.#accounts.find(a => a.id === freshAcc.id);
+        if (mem) {
+          // Sync status so admin force-online/force-offline takes effect in the proxy.
+          if (freshAcc.status !== mem.status) mem.status = freshAcc.status;
+          if (freshAcc.credentials?.accessToken !== mem.credentials?.accessToken) {
+            Object.assign(mem.credentials, freshAcc.credentials);
           }
         }
-        // Add/remove accounts that were added/deleted via admin
-        const freshIds = new Set(fresh.map(a => a.id));
-        const memIds = new Set(this.#accounts.map(a => a.id));
-        for (const a of fresh) if (!memIds.has(a.id)) this.#accounts.push(a);
-        this.#accounts = this.#accounts.filter(a => freshIds.has(a.id));
-      } catch { /* ignore */ }
-    };
+      }
+      const freshIds = new Set(fresh.map(a => a.id));
+      const memIds = new Set(this.#accounts.map(a => a.id));
+      for (const a of fresh) if (!memIds.has(a.id)) this.#accounts.push(a);
+      this.#accounts = this.#accounts.filter(a => freshIds.has(a.id));
+    } catch { /* ignore */ }
+  }
 
+  #startWatch() {
+    const merge = () => this._mergeFromDisk();
     try {
-      // fs.watch fires when admin writes accounts.json — merge credentials only,
-      // never do a full replace that would overwrite fresher in-memory rate-limit state.
-      this.#watcher = watch(this.#configStore.accountsPath, { persistent: false }, mergeFromDisk);
+      this.#watcher = watch(this.#configStore.accountsPath, { persistent: false }, merge);
     } catch {
       // fs.watch not available in test environments
     }
     // Polling fallback for WSL2 where fs.watch is unreliable (inotify limitations).
-    setInterval(mergeFromDisk, 15000).unref();
+    setInterval(merge, 15000).unref();
   }
 
   #startProactiveRefresh() {

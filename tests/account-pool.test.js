@@ -185,6 +185,35 @@ test('markUnauthorized for unknown id is a no-op (does not throw)', async () => 
   assert.equal(pool.getAccount('acc_1').status, 'idle');
 });
 
+test('_mergeFromDisk syncs status field (admin force-offline propagates to proxy)', async () => {
+  // Disk has acc_1 marked exhausted (admin just wrote it via force-offline).
+  const mockStore = {
+    readAccounts: async () => [makeAccount('acc_1', { status: 'exhausted' })],
+    writeAccounts: async () => {},
+  };
+  const pool = new AccountPool({
+    accounts: [makeAccount('acc_1', { status: 'idle' })],
+    terminals: [],
+    configStore: mockStore,
+  });
+  await pool._mergeFromDisk();
+  assert.equal(pool.getAccount('acc_1').status, 'exhausted');
+});
+
+test('_mergeFromDisk syncs status back to idle (admin force-online propagates)', async () => {
+  const mockStore = {
+    readAccounts: async () => [makeAccount('acc_1', { status: 'idle' })],
+    writeAccounts: async () => {},
+  };
+  const pool = new AccountPool({
+    accounts: [makeAccount('acc_1', { status: 'exhausted' })],
+    terminals: [],
+    configStore: mockStore,
+  });
+  await pool._mergeFromDisk();
+  assert.equal(pool.getAccount('acc_1').status, 'idle');
+});
+
 test('auto mode distributes terminals across accounts when utilization is equal', () => {
   const pool = new AccountPool({
     accounts: [

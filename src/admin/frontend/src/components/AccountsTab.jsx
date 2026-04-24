@@ -318,6 +318,7 @@ export default function AccountsTab({ accounts, terminals, onRefresh, onNewTermi
 
   function statusDot(acc) {
     if (acc.type === 'relay') {
+      if (acc.status === 'exhausted') return 'dot-red'
       if (acc.health?.status === 'offline') return 'dot-red'
       if (acc.health?.status === 'online') return 'dot-green'
       return 'dot-gray'

@@ -389,6 +389,7 @@ async function probeAndCacheRelay(acc) {
 async function syncRateLimit(acc) {
   // Relay accounts: probe health instead of reading Anthropic rate-limit headers.
   if (acc.type === 'relay') {
+    if (acc.status === 'exhausted') return;
     await probeAndCacheRelay(acc);
     return;
   }
@@ -598,6 +599,7 @@ async function probeAllRelays() {
     const accounts = await configStore.readAccounts();
     for (const acc of accounts) {
       if (acc.type !== 'relay') continue;
+      if (acc.status === 'exhausted') continue;
       await probeAndCacheRelay(acc);
     }
   } catch (err) {
