@@ -26,6 +26,8 @@ function makeAccount(id, opts = {}) {
       weeklyTokens: { used: 0, limit: 1000000, resetAt: Date.now() + 86400000 },
     },
     addedAt: opts.addedAt ?? Date.now(),
+    ...(opts.modelMap !== undefined && { modelMap: opts.modelMap }),
+    ...(opts.nickname !== undefined && { nickname: opts.nickname }),
   };
 }
 
@@ -212,6 +214,82 @@ test('_mergeFromDisk syncs status back to idle (admin force-online propagates)',
   });
   await pool._mergeFromDisk();
   assert.equal(pool.getAccount('acc_1').status, 'idle');
+});
+
+test('_mergeFromDisk syncs modelMap from disk (admin change propagates to proxy)', async () => {
+  const mockStore = {
+    readAccounts: async () => [makeAccount('acc_1', { modelMap: { opus: 'claude-opus-4-7' } })],
+    writeAccounts: async () => {},
+  };
+  const pool = new AccountPool({
+    accounts: [makeAccount('acc_1', { modelMap: {} })],
+    terminals: [],
+    configStore: mockStore,
+  });
+  await pool._mergeFromDisk();
+  assert.deepEqual(pool.getAccount('acc_1').modelMap, { opus: 'claude-opus-4-7' });
+});
+
+test('_mergeFromDisk preserves in-memory rateLimit (does not overwrite with stale disk)', async () => {
+  const memRateLimit = { window5h: { used: 500, limit: 1000 }, weekly: {} };
+  const mockStore = {
+    readAccounts: async () => [{ ...makeAccount('acc_1'), rateLimit: { window5h: { used: 0 } } }],
+    writeAccounts: async () => {},
+  };
+  const pool = new AccountPool({
+    accounts: [{ ...makeAccount('acc_1'), rateLimit: memRateLimit }],
+    terminals: [],
+    configStore: mockStore,
+  });
+  await pool._mergeFromDisk();
+  // In-memory rateLimit (used=500) must survive the disk merge
+  assert.equal(pool.getAccount('acc_1').rateLimit.window5h.used, 500);
+});
+
+test('_mergeFromDisk preserves fresher credentials (higher expiresAt wins)', async () => {
+  const now = Date.now();
+  const memExpires = now + 7200000;   // 2h from now (fresher)
+  const diskExpires = now + 3600000;  // 1h from now (staler)
+  const mockStore = {
+    readAccounts: async () => [{
+      ...makeAccount('acc_1'),
+      credentials: { accessToken: 'old-tok', refreshToken: 'old-ref', expiresAt: diskExpires },
+    }],
+    writeAccounts: async () => {},
+  };
+  const pool = new AccountPool({
+    accounts: [{
+      ...makeAccount('acc_1'),
+      credentials: { accessToken: 'new-tok', refreshToken: 'new-ref', expiresAt: memExpires },
+    }],
+    terminals: [],
+    configStore: mockStore,
+  });
+  await pool._mergeFromDisk();
+  assert.equal(pool.getAccount('acc_1').credentials.accessToken, 'new-tok');
+});
+
+test('_mergeFromDisk takes disk credentials when disk is fresher', async () => {
+  const now = Date.now();
+  const memExpires = now + 1800000;   // 30min from now (staler)
+  const diskExpires = now + 3600000;  // 1h from now (fresher — admin refreshed)
+  const mockStore = {
+    readAccounts: async () => [{
+      ...makeAccount('acc_1'),
+      credentials: { accessToken: 'admin-refreshed', refreshToken: 'ref', expiresAt: diskExpires },
+    }],
+    writeAccounts: async () => {},
+  };
+  const pool = new AccountPool({
+    accounts: [{
+      ...makeAccount('acc_1'),
+      credentials: { accessToken: 'old-tok', refreshToken: 'old-ref', expiresAt: memExpires },
+    }],
+    terminals: [],
+    configStore: mockStore,
+  });
+  await pool._mergeFromDisk();
+  assert.equal(pool.getAccount('acc_1').credentials.accessToken, 'admin-refreshed');
 });
 
 test('auto mode distributes terminals across accounts when utilization is equal', () => {

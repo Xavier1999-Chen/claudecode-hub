@@ -164,7 +164,16 @@ export class AccountPool {
     if (!isExpired(account)) return account;
     const update = await refreshToken(account);
     Object.assign(account.credentials, update.credentials);
-    await this.#configStore.writeAccounts(this.#accounts).catch(() => {});
+    // Read-patch-write: only persist credentials, never overwrite admin-managed
+    // fields (modelMap, probeModel, nickname, etc.) with stale in-memory values.
+    try {
+      const disk = await this.#configStore.readAccounts();
+      const onDisk = disk.find(a => a.id === account.id);
+      if (onDisk) {
+        Object.assign(onDisk.credentials, account.credentials);
+        await this.#configStore.writeAccounts(disk);
+      }
+    } catch { /* non-fatal: next merge will reconcile */ }
     return account;
   }
 
@@ -305,20 +314,26 @@ export class AccountPool {
     return this.#rateQueues.get(accountId);
   }
 
-  // Sync credentials, status, and account list from disk without overwriting
-  // in-memory rate-limit state (which is fresher from actual API response headers).
-  // Exposed (underscore-prefixed) so tests can drive it directly.
+  // Sync all fields from disk without overwriting in-memory rate-limit state
+  // (which is fresher from actual API response headers) or in-memory credentials
+  // that are fresher (higher expiresAt). This ensures admin changes (modelMap,
+  // probeModel, nickname, status, etc.) propagate to the proxy promptly.
   async _mergeFromDisk() {
     try {
       const fresh = await this.#configStore.readAccounts();
       for (const freshAcc of fresh) {
         const mem = this.#accounts.find(a => a.id === freshAcc.id);
         if (mem) {
-          // Sync status so admin force-online/force-offline takes effect in the proxy.
-          if (freshAcc.status !== mem.status) mem.status = freshAcc.status;
-          if (freshAcc.credentials?.accessToken !== mem.credentials?.accessToken) {
-            Object.assign(mem.credentials, freshAcc.credentials);
-          }
+          // Preserve in-memory rate-limit (fresher from API response headers).
+          const memRateLimit = mem.rateLimit;
+          // Keep whichever credentials have the later expiry — proxy may have just
+          // refreshed the token in memory while admin wrote an older snapshot.
+          const memExpires = mem.credentials?.expiresAt ?? 0;
+          const diskExpires = freshAcc.credentials?.expiresAt ?? 0;
+          const fresherCreds = memExpires >= diskExpires ? mem.credentials : freshAcc.credentials;
+          Object.assign(mem, freshAcc);
+          mem.rateLimit = memRateLimit;
+          mem.credentials = fresherCreds;
         }
       }
       const freshIds = new Set(fresh.map(a => a.id));
