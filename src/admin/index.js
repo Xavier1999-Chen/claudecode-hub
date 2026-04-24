@@ -463,10 +463,12 @@ async function syncRateLimit(acc) {
 function sanitiseAccount(acc) {
   const { credentials, ...rest } = acc;
   if (acc.type === 'relay') {
+    // Exhausted relays get no health data — the account is dead, don't
+    // show stale probe results or countdown timers.
+    if (acc.status === 'exhausted') {
+      return { ...rest, hasCredentials: !!credentials?.apiKey, health: null };
+    }
     const health = relayHealthCache.get(acc.id) ?? null;
-    // ttlMs: remaining ms until next probe. Recalculated on every getAccounts
-    // call so the frontend always gets a fresh value. Frontend uses
-    // (ttlMs - local elapsed) for countdown — immune to clock drift.
     const ttlMs = health
       ? Math.max(0, health._nextCheckAt - Date.now())
       : null;
@@ -674,6 +676,7 @@ async function probeAllRelays() {
     const accounts = await configStore.readAccounts();
     for (const acc of accounts) {
       if (acc.type !== 'relay') continue;
+      if (acc.status === 'exhausted') continue;
       await probeAndCacheRelay(acc);
     }
   } catch (err) {
