@@ -421,13 +421,16 @@ async function syncRateLimit(acc) {
     });
 
     // Detect permanent OAuth revocation — Anthropic returns 403 permission_error
+    // or 400 invalid_request_error (e.g. "This organization has been disabled.")
     // when the org's OAuth access has been revoked (plan downgraded, org banned).
     // Mark the account exhausted so UI/selection treats it as permanently offline;
     // the sync-usage endpoints notice the status transition and migrate terminals.
-    if (res.status === 403) {
+    if (res.status === 400 || res.status === 403) {
       const body = await res.text();
-      if (isOAuthRevoked(res.status, body)) {
-        console.warn(`[syncRateLimit] 403 permission_error on ${acc.email ?? acc.id}, marking exhausted`);
+      const headers = Object.fromEntries(res.headers.entries());
+      if (isOAuthRevoked(res.status, body, headers)) {
+        const via = res.status === 400 ? '400 disabled/banned' : '403 permission_error';
+        console.warn(`[syncRateLimit] ${via} on ${acc.email ?? acc.id}, marking exhausted`);
         acc.status = 'exhausted';
         acc.plan = 'free';
       }
