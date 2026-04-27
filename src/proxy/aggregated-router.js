@@ -1,11 +1,19 @@
+function containsImageInContentArray(content) {
+  if (!Array.isArray(content)) return false;
+  for (const item of content) {
+    if (item?.type === 'image') return true;
+    // Images can be nested inside tool_result.content
+    if (item?.type === 'tool_result' && Array.isArray(item.content)) {
+      if (containsImageInContentArray(item.content)) return true;
+    }
+  }
+  return false;
+}
+
 export function hasImageContent(body) {
   if (!body?.messages) return false;
   for (const msg of body.messages) {
-    if (Array.isArray(msg.content)) {
-      for (const item of msg.content) {
-        if (item?.type === 'image') return true;
-      }
-    }
+    if (containsImageInContentArray(msg.content)) return true;
   }
   return false;
 }

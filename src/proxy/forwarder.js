@@ -3,7 +3,6 @@ import { HttpsProxyAgent } from 'https-proxy-agent';
 import { createUsageTapper } from './usage-tracker.js';
 import { isOAuthRevoked } from './permission-guard.js';
 import { applyModelMap } from './model-map.js';
-import { stripThinkingBlocks } from './thinking-strip.js';
 import { resolveAggregatedProvider, rewriteModel } from './aggregated-router.js';
 
 const UPSTREAM = 'https://api.anthropic.com';
@@ -85,11 +84,14 @@ export async function forwardRequest(req, res, account, terminalId, pool, triedI
 
   let outBody = req.method !== 'GET' && req.method !== 'HEAD' ? req.rawBody : undefined;
 
-  // Always strip thinking blocks from historical assistant messages.
-  // Signatures in these blocks are HMACed per-account; our rotating pool
-  // means a replayed block from a prior turn will fail validation at a
-  // different upstream. See @/src/proxy/thinking-strip.js for detail.
-  if (outBody) outBody = stripThinkingBlocks(outBody);
+  // NOTE: We no longer strip thinking blocks. Anthropic-compatible
+  // upstreams (including DeepSeek/Kimi /anthropic endpoints) require
+  // thinking blocks to be replayed on subsequent turns. Stripping them
+  // causes a 400 "thinking must be passed back" error.
+  // The original stripping was meant to avoid signature mismatches when
+  // the OAuth pool rotates accounts between turns; that is now handled
+  // as a known limitation (sticky account selection for thinking convs).
+  // if (outBody) outBody = stripThinkingBlocks(outBody);
 
   if (isRelay || isAggregated) {
     // Relay / Aggregated station: static API key, no OAuth beta, no 1M-context stripping.

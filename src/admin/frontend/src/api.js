@@ -281,9 +281,23 @@ export async function syncAccountUsage(id) {
     await delay(400)
     const acc = _accounts.find(a => a.id === id)
     if (acc) {
-      acc.rateLimit = {
-        window5h: { utilization: Math.random() * 0.6, resetAt: Date.now() + 18000000, status: 'allowed' },
-        weekly: { utilization: Math.random() * 0.4, resetAt: Date.now() + 6 * 86400000, status: 'allowed' },
+      if (acc.type === 'aggregated') {
+        // Simulate per-provider health probes in mock mode
+        acc.providers = acc.providers?.map(p => ({
+          ...p,
+          health: {
+            status: Math.random() > 0.2 ? 'online' : 'offline',
+            latencyMs: Math.floor(Math.random() * 300 + 50),
+            model: p.probeModel || 'unknown',
+            error: null,
+            ttlMs: 42000,
+          },
+        })) ?? []
+      } else {
+        acc.rateLimit = {
+          window5h: { utilization: Math.random() * 0.6, resetAt: Date.now() + 18000000, status: 'allowed' },
+          weekly: { utilization: Math.random() * 0.4, resetAt: Date.now() + 6 * 86400000, status: 'allowed' },
+        }
       }
     }
     return JSON.parse(JSON.stringify(acc))
