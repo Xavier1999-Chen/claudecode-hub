@@ -110,6 +110,26 @@ app.patch('/api/accounts/:id', requireAdmin, async (req, res) => {
     }
     acc.modelMap = normalisedMap;
   }
+  if (req.body.routing !== undefined && acc.type === 'aggregated') {
+    const normalisedRouting = {};
+    if (req.body.routing && typeof req.body.routing === 'object') {
+      for (const tier of ['opus', 'sonnet', 'haiku', 'image']) {
+        const r = req.body.routing[tier];
+        if (r && typeof r === 'object' && typeof r.providerIndex === 'number' && typeof r.model === 'string' && r.model.trim().length > 0) {
+          normalisedRouting[tier] = { providerIndex: r.providerIndex, model: r.model.trim() };
+        }
+      }
+    }
+    acc.routing = normalisedRouting;
+  }
+  if (req.body.probes !== undefined && acc.type === 'aggregated' && Array.isArray(req.body.probes)) {
+    for (let i = 0; i < (acc.providers ?? []).length; i++) {
+      if (i < req.body.probes.length) {
+        const v = req.body.probes[i];
+        acc.providers[i].probeModel = (typeof v === 'string' && v.trim().length > 0) ? v.trim() : null;
+      }
+    }
+  }
   await configStore.writeAccounts(accounts);
   res.json(sanitiseAccount(acc));
 });
@@ -188,6 +208,58 @@ app.post('/api/accounts/relay', requireAdmin, async (req, res) => {
     baseUrl: baseUrl.replace(/\/$/, ''),
     credentials: { apiKey: apiKey.trim() },
     modelMap: normalisedMap,
+    status: 'idle',
+    addedAt: Date.now(),
+  };
+  accounts.push(acc);
+  await configStore.writeAccounts(accounts);
+  res.status(201).json(sanitiseAccount(acc));
+});
+
+// Add an aggregated routing card — multiple upstream providers behind a single
+// token, with per-tier routing (Opus/Sonnet/Haiku/Image → provider + model).
+app.post('/api/accounts/aggregated', requireAdmin, async (req, res) => {
+  const { nickname, providers, routing } = req.body ?? {};
+  if (typeof nickname !== 'string' || nickname.trim().length === 0) {
+    return res.status(400).json({ error: 'nickname_required' });
+  }
+  if (!Array.isArray(providers) || providers.length === 0) {
+    return res.status(400).json({ error: 'providers_required', message: 'At least one provider is required' });
+  }
+  const normalisedProviders = [];
+  for (const p of providers) {
+    if (typeof p.name !== 'string' || p.name.trim().length === 0) {
+      return res.status(400).json({ error: 'provider_name_required' });
+    }
+    if (typeof p.baseUrl !== 'string' || !/^https:\/\//i.test(p.baseUrl)) {
+      return res.status(400).json({ error: 'invalid_base_url', message: `Provider "${p.name}" baseUrl must start with https://` });
+    }
+    if (typeof p.apiKey !== 'string' || p.apiKey.trim().length === 0) {
+      return res.status(400).json({ error: 'api_key_required', message: `Provider "${p.name}" apiKey is required` });
+    }
+    normalisedProviders.push({
+      name: p.name.trim(),
+      baseUrl: p.baseUrl.replace(/\/$/, ''),
+      credentials: { apiKey: p.apiKey.trim() },
+      probeModel: (typeof p.probeModel === 'string' && p.probeModel.trim().length > 0) ? p.probeModel.trim() : null,
+    });
+  }
+  const normalisedRouting = {};
+  if (routing && typeof routing === 'object') {
+    for (const tier of ['opus', 'sonnet', 'haiku', 'image']) {
+      const r = routing[tier];
+      if (r && typeof r === 'object' && typeof r.providerIndex === 'number' && typeof r.model === 'string' && r.model.trim().length > 0) {
+        normalisedRouting[tier] = { providerIndex: r.providerIndex, model: r.model.trim() };
+      }
+    }
+  }
+  const accounts = await configStore.readAccounts();
+  const acc = {
+    id: `acc_${randomBytes(6).toString('hex')}`,
+    type: 'aggregated',
+    nickname: nickname.trim(),
+    providers: normalisedProviders,
+    routing: normalisedRouting,
     status: 'idle',
     addedAt: Date.now(),
   };
@@ -388,8 +460,8 @@ async function probeAndCacheRelay(acc) {
 }
 
 async function syncRateLimit(acc) {
-  // Relay accounts: probe health instead of reading Anthropic rate-limit headers.
-  if (acc.type === 'relay') {
+  // Relay / Aggregated accounts: probe health instead of reading Anthropic rate-limit headers.
+  if (acc.type === 'relay' || acc.type === 'aggregated') {
     await probeAndCacheRelay(acc);
     return;
   }
@@ -484,6 +556,22 @@ function sanitiseAccount(acc) {
             ttlMs,
           }
         : null,
+    };
+  }
+  if (acc.type === 'aggregated') {
+    // Strip apiKey from providers, replace with hasApiKey boolean
+    const providers = (acc.providers ?? []).map(p => ({
+      name: p.name,
+      baseUrl: p.baseUrl,
+      hasApiKey: !!p.credentials?.apiKey,
+      probeModel: p.probeModel ?? null,
+      health: acc.status === 'exhausted' ? null : (p.health ?? null),
+    }));
+    const hasCredentials = providers.some(p => p.hasApiKey);
+    return {
+      ...rest,
+      providers,
+      hasCredentials,
     };
   }
   return {
@@ -675,7 +763,7 @@ async function probeAllRelays() {
   try {
     const accounts = await configStore.readAccounts();
     for (const acc of accounts) {
-      if (acc.type !== 'relay') continue;
+      if (acc.type !== 'relay' && acc.type !== 'aggregated') continue;
       if (acc.status === 'exhausted') continue;
       await probeAndCacheRelay(acc);
     }

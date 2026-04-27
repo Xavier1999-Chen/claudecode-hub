@@ -86,16 +86,16 @@ export class AccountPool {
    * @param {Set<string>} excludeIds
    */
   selectFallback(excludeIds) {
-    const isRelay = (a) => a.type === 'relay';
+    const isRelay = (a) => a.type === 'relay' || a.type === 'aggregated';
     const eligible = this.#accounts
       .filter(a => !excludeIds.has(a.id) && a.status !== 'exhausted' && this.#ensureCB(a.id).canRequest());
     const oauth = eligible.filter(a => !isRelay(a));
     const warm = oauth.filter(a => !this.#isCooling(a));
     if (warm.length) return this.#leastUtilized(warm);
-    const cooling = oauth.filter(a => this.#isCooling(a));
-    if (cooling.length) return this.#soonestReset(cooling);
     const relays = eligible.filter(isRelay);
     if (relays.length) return this.#oldestRelay(relays);
+    const cooling = oauth.filter(a => this.#isCooling(a));
+    if (cooling.length) return this.#soonestReset(cooling);
     return null;
   }
 
@@ -163,7 +163,7 @@ export class AccountPool {
    * Relay accounts use a static apiKey and skip refresh entirely.
    */
   async ensureFreshToken(account) {
-    if (account.type === 'relay') return account;
+    if (account.type === 'relay' || account.type === 'aggregated') return account;
     if (!isExpired(account)) return account;
     const update = await this.#refreshToken(account);
     Object.assign(account.credentials, update.credentials);
@@ -199,7 +199,7 @@ export class AccountPool {
   }
 
   #pickAuto(preferredId = null) {
-    const isRelay = (a) => a.type === 'relay';
+    const isRelay = (a) => a.type === 'relay' || a.type === 'aggregated';
     const eligible = this.#accounts
       .filter(a => a.status !== 'exhausted' && this.#ensureCB(a.id).canRequest());
     if (eligible.length === 0) throw new Error('503: no available accounts');

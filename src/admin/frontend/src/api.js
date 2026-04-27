@@ -174,6 +174,36 @@ export async function updateProbeModel(id, probeModel) {
   })
 }
 
+export async function updateAggregatedRouting(id, routing) {
+  if (USE_MOCK) {
+    await delay()
+    const acc = _accounts.find(a => a.id === id)
+    if (acc) acc.routing = routing
+    return JSON.parse(JSON.stringify(acc))
+  }
+  return apiJson(`/api/accounts/${id}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ routing }),
+  })
+}
+
+export async function updateAggregatedProbes(id, probes) {
+  if (USE_MOCK) {
+    await delay()
+    const acc = _accounts.find(a => a.id === id)
+    if (acc) {
+      acc.providers.forEach((p, i) => {
+        if (i < probes.length) p.probeModel = probes[i]
+      })
+    }
+    return JSON.parse(JSON.stringify(acc))
+  }
+  return apiJson(`/api/accounts/${id}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ probes }),
+  })
+}
+
 export async function listRelayModels(id) {
   if (USE_MOCK) {
     await delay(300)
@@ -216,6 +246,33 @@ export async function addRelayAccount({ nickname, baseUrl, apiKey, modelMap }) {
   return apiJson('/api/accounts/relay', {
     method: 'POST',
     body: JSON.stringify({ nickname, baseUrl, apiKey, modelMap }),
+  })
+}
+
+export async function addAggregatedAccount({ nickname, providers, routing }) {
+  if (USE_MOCK) {
+    await delay(400)
+    const newAcc = {
+      id: 'acc_agg' + Date.now(),
+      type: 'aggregated',
+      nickname,
+      status: 'idle',
+      hasCredentials: true,
+      addedAt: Date.now(),
+      providers: providers.map(p => ({
+        name: p.name,
+        baseUrl: p.baseUrl,
+        hasApiKey: true,
+        probeModel: p.probeModel ?? null,
+      })),
+      routing: routing ?? {},
+    }
+    _accounts.push(newAcc)
+    return JSON.parse(JSON.stringify(newAcc))
+  }
+  return apiJson('/api/accounts/aggregated', {
+    method: 'POST',
+    body: JSON.stringify({ nickname, providers, routing }),
   })
 }
 
