@@ -86,16 +86,16 @@ export class AccountPool {
    * @param {Set<string>} excludeIds
    */
   selectFallback(excludeIds) {
-    const isRelay = (a) => a.type === 'relay';
+    const isRelay = (a) => a.type === 'relay' || a.type === 'aggregated';
     const eligible = this.#accounts
       .filter(a => !excludeIds.has(a.id) && a.status !== 'exhausted' && this.#ensureCB(a.id).canRequest());
     const oauth = eligible.filter(a => !isRelay(a));
     const warm = oauth.filter(a => !this.#isCooling(a));
     if (warm.length) return this.#leastUtilized(warm);
-    const cooling = oauth.filter(a => this.#isCooling(a));
-    if (cooling.length) return this.#soonestReset(cooling);
     const relays = eligible.filter(isRelay);
     if (relays.length) return this.#oldestRelay(relays);
+    const cooling = oauth.filter(a => this.#isCooling(a));
+    if (cooling.length) return this.#soonestReset(cooling);
     return null;
   }
 
@@ -163,7 +163,7 @@ export class AccountPool {
    * Relay accounts use a static apiKey and skip refresh entirely.
    */
   async ensureFreshToken(account) {
-    if (account.type === 'relay') return account;
+    if (account.type === 'relay' || account.type === 'aggregated') return account;
     if (!isExpired(account)) return account;
     const update = await this.#refreshToken(account);
     Object.assign(account.credentials, update.credentials);
@@ -199,7 +199,7 @@ export class AccountPool {
   }
 
   #pickAuto(preferredId = null) {
-    const isRelay = (a) => a.type === 'relay';
+    const isRelay = (a) => a.type === 'relay' || a.type === 'aggregated';
     const eligible = this.#accounts
       .filter(a => a.status !== 'exhausted' && this.#ensureCB(a.id).canRequest());
     if (eligible.length === 0) throw new Error('503: no available accounts');
@@ -320,9 +320,25 @@ export class AccountPool {
         for (const freshAcc of fresh) {
           const mem = this.#accounts.find(a => a.id === freshAcc.id);
           if (mem) {
-            // Only update credentials if they changed (admin refreshed token)
-            if (freshAcc.credentials?.accessToken !== mem.credentials?.accessToken) {
-              Object.assign(mem.credentials, freshAcc.credentials);
+            // Preserve in-memory runtime state (fresher than disk)
+            const preservedRateLimit = mem.rateLimit;
+            const preservedCooldown = mem.cooldownUntil;
+            const preservedHealth = mem.health;
+            const preservedProviderHealths = mem.type === 'aggregated' && Array.isArray(mem.providers)
+              ? mem.providers.map(p => p.health)
+              : [];
+
+            // Full replace from disk
+            Object.assign(mem, freshAcc);
+
+            // Restore preserved state
+            mem.rateLimit = preservedRateLimit;
+            mem.cooldownUntil = preservedCooldown;
+            mem.health = preservedHealth;
+            if (Array.isArray(mem.providers) && preservedProviderHealths.length) {
+              for (let i = 0; i < Math.min(mem.providers.length, preservedProviderHealths.length); i++) {
+                mem.providers[i].health = preservedProviderHealths[i];
+              }
             }
           }
         }

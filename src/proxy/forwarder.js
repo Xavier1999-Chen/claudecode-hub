@@ -3,7 +3,7 @@ import { HttpsProxyAgent } from 'https-proxy-agent';
 import { createUsageTapper } from './usage-tracker.js';
 import { isOAuthRevoked } from './permission-guard.js';
 import { applyModelMap } from './model-map.js';
-import { stripThinkingBlocks } from './thinking-strip.js';
+import { resolveAggregatedProvider, rewriteModel } from './aggregated-router.js';
 
 const UPSTREAM = 'https://api.anthropic.com';
 const UPSTREAM_TIMEOUT_MS = 60_000;
@@ -63,6 +63,18 @@ const HOP_BY_HOP = new Set([
  */
 export async function forwardRequest(req, res, account, terminalId, pool, triedIds = new Set(), onFallback = null) {
   const isRelay = account.type === 'relay';
+  const isAggregated = account.type === 'aggregated';
+  let aggregatedProvider = null;
+
+  if (isAggregated) {
+    try {
+      const body = JSON.parse(req.rawBody?.toString() ?? '{}');
+      aggregatedProvider = resolveAggregatedProvider(body, account);
+    } catch { /* invalid JSON handled below */ }
+    if (!aggregatedProvider) {
+      return res.status(502).json({ error: 'aggregated_routing_unresolved', message: 'No provider matched for this request' });
+    }
+  }
 
   // Build upstream headers
   const upHeaders = {};
@@ -72,19 +84,25 @@ export async function forwardRequest(req, res, account, terminalId, pool, triedI
 
   let outBody = req.method !== 'GET' && req.method !== 'HEAD' ? req.rawBody : undefined;
 
-  // Always strip thinking blocks from historical assistant messages.
-  // Signatures in these blocks are HMACed per-account; our rotating pool
-  // means a replayed block from a prior turn will fail validation at a
-  // different upstream. See @/src/proxy/thinking-strip.js for detail.
-  if (outBody) outBody = stripThinkingBlocks(outBody);
+  // NOTE: We no longer strip thinking blocks. Anthropic-compatible
+  // upstreams (including DeepSeek/Kimi /anthropic endpoints) require
+  // thinking blocks to be replayed on subsequent turns. Stripping them
+  // causes a 400 "thinking must be passed back" error.
+  // The original stripping was meant to avoid signature mismatches when
+  // the OAuth pool rotates accounts between turns; that is now handled
+  // as a known limitation (sticky account selection for thinking convs).
+  // if (outBody) outBody = stripThinkingBlocks(outBody);
 
-  if (isRelay) {
-    // Relay station: static API key, no OAuth beta, no 1M-context stripping.
-    upHeaders['x-api-key'] = account.credentials.apiKey;
+  if (isRelay || isAggregated) {
+    // Relay / Aggregated station: static API key, no OAuth beta, no 1M-context stripping.
+    upHeaders['x-api-key'] = isAggregated ? aggregatedProvider.apiKey : account.credentials.apiKey;
     if (!upHeaders['anthropic-version']) upHeaders['anthropic-version'] = '2023-06-01';
     // Apply per-relay model-name remapping (body.model rewrite) before forwarding.
     if (outBody && account.modelMap) {
       outBody = applyModelMap(outBody, account.modelMap);
+    }
+    if (isAggregated && aggregatedProvider.targetModel) {
+      outBody = rewriteModel(outBody, aggregatedProvider.targetModel);
     }
   } else {
     upHeaders['authorization'] = `Bearer ${account.credentials.accessToken}`;
@@ -98,7 +116,9 @@ export async function forwardRequest(req, res, account, terminalId, pool, triedI
     if (!upHeaders['anthropic-version']) upHeaders['anthropic-version'] = '2023-06-01';
   }
 
-  const baseUrl = isRelay ? (account.baseUrl || UPSTREAM) : UPSTREAM;
+  const baseUrl = isRelay ? (account.baseUrl || UPSTREAM)
+    : isAggregated ? aggregatedProvider.baseUrl
+    : UPSTREAM;
   const url = baseUrl.replace(/\/$/, '') + req.url;
 
   const fetchOpts = {
@@ -126,9 +146,9 @@ export async function forwardRequest(req, res, account, terminalId, pool, triedI
 
   // Handle token expiry: reload from disk first (admin may have refreshed),
   // then fall back to calling the refresh endpoint. Retry once.
-  // Relay accounts use a static apiKey — a 401 there means the key is bad;
+  // Relay / Aggregated accounts use a static apiKey — a 401 there means the key is bad;
   // pass the error through so the admin can see it.
-  if (upRes.status === 401 && !isRelay) {
+  if (upRes.status === 401 && !isRelay && !isAggregated) {
     console.log(`[fwd] 401 for account ${account.id}, reloading credentials from disk`);
     try {
       await pool.reloadAccount(account.id);
@@ -221,8 +241,8 @@ export async function forwardRequest(req, res, account, terminalId, pool, triedI
 
   // Detect SSE
   const ct = upRes.headers.get('content-type') ?? '';
+  const model = isAggregated ? aggregatedProvider.targetModel : detectModel(req);
   if (ct.includes('text/event-stream')) {
-    const model = detectModel(req);
     const tapper = createUsageTapper({ accountId: account.id, terminalId, model });
     upRes.body.pipe(tapper).pipe(res);
     res.on('close', () => { if (!tapper.destroyed) tapper.destroy(); });
@@ -233,7 +253,6 @@ export async function forwardRequest(req, res, account, terminalId, pool, triedI
     try {
       const json = JSON.parse(body.toString());
       if (json.usage) {
-        const model = detectModel(req);
         const { input_tokens: inTok = 0, output_tokens: outTok = 0 } = json.usage;
         // Write via tapper helper directly
         const tapper = createUsageTapper({ accountId: account.id, terminalId, model });

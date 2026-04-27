@@ -8,6 +8,7 @@ import UsageIntensityView from './components/UsageIntensityView.jsx'
 import GuideTab from './components/GuideTab.jsx'
 import OAuthModal from './components/OAuthModal.jsx'
 import RelayModal from './components/RelayModal.jsx'
+import AggregatedModal from './components/AggregatedModal.jsx'
 import TerminalModal from './components/TerminalModal.jsx'
 import LoginPage from './components/LoginPage.jsx'
 import ConfirmEmailPage from './components/ConfirmEmailPage.jsx'
@@ -29,6 +30,7 @@ export default function App() {
   const [usageRecords, setUsageRecords] = useState([])
   const [showOAuth, setShowOAuth] = useState(false)
   const [showRelay, setShowRelay] = useState(false)
+  const [showAggregated, setShowAggregated] = useState(false)
   const [showTerminalModal, setShowTerminalModal] = useState(false)
 
   const staleRoundsRef = useRef(0)
@@ -85,6 +87,7 @@ export default function App() {
 
   function handleOAuthSuccess() { setShowOAuth(false); refresh() }
   function handleRelaySuccess() { setShowRelay(false); refresh() }
+  function handleAggregatedSuccess() { setShowAggregated(false); refresh() }
   function handleTerminalSuccess() { setShowTerminalModal(false); refresh() }
 
   async function handleSignOut() {
@@ -169,6 +172,7 @@ export default function App() {
         setTab={setTab}
         onAddAccount={() => setShowOAuth(true)}
         onAddRelay={() => setShowRelay(true)}
+        onAddAggregated={() => setShowAggregated(true)}
         onNewTerminal={() => setShowTerminalModal(true)}
         session={session}
         isAdmin={isAdmin}
@@ -208,6 +212,13 @@ export default function App() {
 
       {showRelay && (
         <RelayModal onClose={() => setShowRelay(false)} onSuccess={handleRelaySuccess} />
+      )}
+
+      {showAggregated && (
+        <AggregatedModal
+          onClose={() => setShowAggregated(false)}
+          onSuccess={handleAggregatedSuccess}
+        />
       )}
 
       {showTerminalModal && (

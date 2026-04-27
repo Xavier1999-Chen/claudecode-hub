@@ -91,6 +91,48 @@ export const mockAccounts = [
     modelMap: {},
     probeModel: null,
   },
+  {
+    id: 'acc_agg01',
+    type: 'aggregated',
+    nickname: 'DeepSeek + GLM',
+    status: 'idle',
+    hasCredentials: true,
+    addedAt: now - DAY,
+    providers: [
+      {
+        name: 'DeepSeek',
+        baseUrl: 'https://api.deepseek.com',
+        hasApiKey: true,
+        probeModel: 'deepseek-v4-pro',
+        health: {
+          status: 'online',
+          latencyMs: 145,
+          model: 'deepseek-v4-pro',
+          error: null,
+          ttlMs: 38000,
+        },
+      },
+      {
+        name: 'GLM',
+        baseUrl: 'https://open.bigmodel.cn/api/paas',
+        hasApiKey: true,
+        probeModel: 'glm-5v-turbo',
+        health: {
+          status: 'online',
+          latencyMs: 210,
+          model: 'glm-5v-turbo',
+          error: null,
+          ttlMs: 38000,
+        },
+      },
+    ],
+    routing: {
+      opus: { providerIndex: 0, model: 'deepseek-v4-pro' },
+      sonnet: { providerIndex: 0, model: 'deepseek-v4-pro' },
+      haiku: { providerIndex: 0, model: 'deepseek-chat' },
+      image: { providerIndex: 1, model: 'glm-5v-turbo' },
+    },
+  },
 ]
 
 export const mockTerminals = [

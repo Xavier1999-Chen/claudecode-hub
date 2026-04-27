@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { updateTerminal, forceOnline, forceOffline, deleteAccount, renameAccount, refreshAccountToken, syncAccountUsage, updateRelayModelMap, updateProbeModel, listRelayModels } from '../api.js'
+import { updateTerminal, forceOnline, forceOffline, deleteAccount, renameAccount, refreshAccountToken, syncAccountUsage, updateRelayModelMap, updateProbeModel, listRelayModels, updateAggregatedRouting, updateAggregatedProbes } from '../api.js'
 
 function fmtExpiry(ts) {
   if (!ts) return null
@@ -151,8 +151,170 @@ function RelayCardBody({ acc, mounted, terms }) {
   )
 }
 
+// Aggregated card body — shows providers + routing summary + per-provider health
+function AggregatedCardBody({ acc, mounted, terms }) {
+  const routingEntries = []
+  for (const key of ['opus', 'sonnet', 'haiku', 'image']) {
+    const r = acc.routing?.[key]
+    if (r) {
+      const provider = acc.providers?.[r.providerIndex]
+      routingEntries.push({ key, label: key === 'image' ? '图片' : key, model: r.model, providerName: provider?.name || `#${r.providerIndex}` })
+    }
+  }
+
+  return (
+    <>
+      <div className="card-body">
+        {mounted && <div className="mounted-label">✓ 已挂载</div>}
+        <div style={{ fontSize: 12, color: '#57534e', lineHeight: 1.6, marginBottom: 8 }}>
+          {routingEntries.map(e => (
+            <div key={e.key}><span style={{ textTransform: 'capitalize', fontWeight: 600 }}>{e.label}</span> → <code>{e.model}</code> @ {e.providerName}</div>
+          ))}
+          {routingEntries.length === 0 && <span style={{ color: '#a8a29e' }}>未配置路由</span>}
+        </div>
+        {acc.providers?.map((p, i) => (
+          <div key={i} style={{ fontSize: 11, marginBottom: 2 }}>
+            <span style={{ fontWeight: 600 }}>{p.name || `供应商 ${i + 1}`}</span>
+            {' '}
+            {p.health?.status === 'online' && <span style={{ color: '#16a34a' }}>● 连通 {p.health.latencyMs}ms</span>}
+            {p.health?.status === 'offline' && <span style={{ color: '#dc2626' }}>● 中断</span>}
+            {!p.health && <span style={{ color: '#a8a29e' }}>○ 未探测</span>}
+          </div>
+        ))}
+      </div>
+      {terms.length > 0 && (
+        <div className="card-footer">
+          {terms.map(t => <span key={t.id} className="footer-chip">{t.name}</span>)}
+        </div>
+      )}
+    </>
+  )
+}
+
+// Inline editor for aggregated account routing
+function AggregatedRoutingEditor({ acc, onAction }) {
+  const [editing, setEditing] = useState(false)
+  const [busy, setBusy] = useState(false)
+  const tiers = ['opus', 'sonnet', 'haiku', 'image']
+  const labels = { opus: 'Opus', sonnet: 'Sonnet', haiku: 'Haiku', image: '图片' }
+  const [local, setLocal] = useState(() => {
+    const init = {}
+    for (const t of tiers) {
+      init[t] = acc.routing?.[t] ? { ...acc.routing[t] } : { providerIndex: 0, model: '' }
+    }
+    return init
+  })
+
+  async function save() {
+    const out = {}
+    for (const t of tiers) {
+      if (local[t]?.model?.trim()) {
+        out[t] = { providerIndex: local[t].providerIndex, model: local[t].model.trim() }
+      }
+    }
+    setBusy(true)
+    try { await onAction('routing:' + JSON.stringify(out)) } finally { setBusy(false) }
+    setEditing(false)
+  }
+
+  if (!editing) {
+    return (
+      <button className="action-btn" onClick={() => {
+        const init = {}
+        for (const t of tiers) {
+          init[t] = acc.routing?.[t] ? { ...acc.routing[t] } : { providerIndex: 0, model: '' }
+        }
+        setLocal(init)
+        setEditing(true)
+      }}>
+        🔀 编辑路由
+      </button>
+    )
+  }
+
+  return (
+    <div style={{ fontSize: 12, padding: '4px 0' }}>
+      {tiers.map(t => (
+        <div key={t} style={{ display: 'flex', gap: 6, marginBottom: 4, alignItems: 'center' }}>
+          <span style={{ width: 44, flexShrink: 0, color: '#78716c', fontWeight: 500 }}>{labels[t]}</span>
+          <select
+            className="inline-edit"
+            style={{ width: 100, flexShrink: 0 }}
+            value={local[t].providerIndex}
+            onChange={e => setLocal({ ...local, [t]: { ...local[t], providerIndex: parseInt(e.target.value, 10) } })}
+          >
+            {acc.providers?.map((p, i) => (
+              <option key={i} value={i}>{p.name || `供应商 ${i + 1}`}</option>
+            ))}
+          </select>
+          <input
+            className="inline-edit"
+            placeholder="模型名"
+            value={local[t].model}
+            onChange={e => setLocal({ ...local, [t]: { ...local[t], model: e.target.value } })}
+            style={{ flex: 1 }}
+          />
+        </div>
+      ))}
+      <div style={{ display: 'flex', gap: 6, marginTop: 6 }}>
+        <button className="btn btn-primary btn-sm" onClick={save} disabled={busy}>{busy ? '…' : '保存'}</button>
+        <button className="btn btn-ghost btn-sm" onClick={() => setEditing(false)}>取消</button>
+      </div>
+    </div>
+  )
+}
+
+// Inline editor for aggregated account probe models
+function AggregatedProbeEditor({ acc, onAction }) {
+  const [editing, setEditing] = useState(false)
+  const [busy, setBusy] = useState(false)
+  const [local, setLocal] = useState(() =>
+    acc.providers?.map(p => p.probeModel || '') ?? []
+  )
+
+  async function save() {
+    const probes = acc.providers?.map((_, i) => local[i]?.trim() || null) ?? []
+    setBusy(true)
+    try { await onAction('probes:' + JSON.stringify(probes)) } finally { setBusy(false) }
+    setEditing(false)
+  }
+
+  if (!editing) {
+    return (
+      <button className="action-btn" onClick={() => setEditing(true)}>
+        🩺 设置探测模型
+      </button>
+    )
+  }
+
+  return (
+    <div style={{ fontSize: 12, padding: '4px 0' }}>
+      {acc.providers?.map((p, i) => (
+        <div key={i} style={{ display: 'flex', gap: 6, marginBottom: 4, alignItems: 'center' }}>
+          <span style={{ width: 80, flexShrink: 0, color: '#78716c', fontWeight: 500 }}>{p.name || `供应商 ${i + 1}`}</span>
+          <input
+            className="inline-edit"
+            placeholder="探测模型（可选）"
+            value={local[i] || ''}
+            onChange={e => {
+              const next = [...local]
+              next[i] = e.target.value
+              setLocal(next)
+            }}
+            style={{ flex: 1 }}
+          />
+        </div>
+      ))}
+      <div style={{ display: 'flex', gap: 6, marginTop: 6 }}>
+        <button className="btn btn-primary btn-sm" onClick={save} disabled={busy}>{busy ? '…' : '保存'}</button>
+        <button className="btn btn-ghost btn-sm" onClick={() => setEditing(false)}>取消</button>
+      </div>
+    </div>
+  )
+}
+
 // Per-card action panel (shown in a popover-style expanded section)
-function AccountActions({ acc, onAction, onClose }) {
+function AccountActions({ acc, onAction }) {
   const [renaming, setRenaming] = useState(false)
   const [newName, setNewName] = useState(acc.nickname || acc.email)
   const [busy, setBusy] = useState(null)
@@ -250,6 +412,12 @@ function AccountActions({ acc, onAction, onClose }) {
         </button>
       )}
 
+      {/* Aggregated routing editing */}
+      {acc.type === 'aggregated' && <AggregatedRoutingEditor acc={acc} onAction={onAction} />}
+
+      {/* Aggregated probe editing */}
+      {acc.type === 'aggregated' && <AggregatedProbeEditor acc={acc} onAction={onAction} />}
+
       {/* Online / Offline toggle */}
       {exhausted ? (
         <button className="action-btn action-btn-success" disabled={busy === 'online'} onClick={() => run('online')}>
@@ -262,7 +430,7 @@ function AccountActions({ acc, onAction, onClose }) {
       )}
 
       {/* Refresh token — OAuth only */}
-      {acc.type !== 'relay' && (
+      {acc.type !== 'relay' && acc.type !== 'aggregated' && (
         <button className="action-btn" disabled={busy === 'refresh'} onClick={() => run('refresh')}>
           {busy === 'refresh' ? '…' : '🔑 刷新 Token'}
         </button>
@@ -317,8 +485,16 @@ export default function AccountsTab({ accounts, terminals, onRefresh, onNewTermi
   }
 
   function statusDot(acc) {
-    if (acc.type === 'relay') {
+    if (acc.type === 'relay' || acc.type === 'aggregated') {
       if (acc.status === 'exhausted') return 'dot-red'
+      // aggregated: check all provider healths
+      if (acc.type === 'aggregated' && acc.providers) {
+        const allOnline = acc.providers.every(p => !p.health || p.health.status === 'online')
+        const anyOffline = acc.providers.some(p => p.health?.status === 'offline')
+        if (anyOffline) return 'dot-red'
+        if (allOnline && acc.providers.some(p => p.health)) return 'dot-green'
+        return 'dot-gray'
+      }
       if (acc.health?.status === 'offline') return 'dot-red'
       if (acc.health?.status === 'online') return 'dot-green'
       return 'dot-gray'
@@ -389,7 +565,7 @@ export default function AccountsTab({ accounts, terminals, onRefresh, onNewTermi
     } else if (action === 'refresh') {
       await refreshAccountToken(acc.id)
     } else if (action === 'delete') {
-      if (!window.confirm(`确认删除账号 ${acc.email}？`)) return
+      if (!window.confirm(`确认删除账号 ${acc.nickname || acc.email || acc.id}？`)) return
       // Delete: reassign ALL terminals (auto + manual)
       await reassignTerminals(acc.id, null)
       await deleteAccount(acc.id)
@@ -398,6 +574,10 @@ export default function AccountsTab({ accounts, terminals, onRefresh, onNewTermi
       await renameAccount(acc.id, action.slice(7))
     } else if (action.startsWith('modelmap:')) {
       await updateRelayModelMap(acc.id, JSON.parse(action.slice(9)))
+    } else if (action.startsWith('routing:')) {
+      await updateAggregatedRouting(acc.id, JSON.parse(action.slice(8)))
+    } else if (action.startsWith('probes:')) {
+      await updateAggregatedProbes(acc.id, JSON.parse(action.slice(7)))
     } else if (action === 'probe-modal') {
       setProbeModalAcc(acc)
       return
@@ -506,7 +686,8 @@ export default function AccountsTab({ accounts, terminals, onRefresh, onNewTermi
           const actionsOpen = expandedCard === acc.id
           const displayName = acc.nickname || acc.email
           const isRelay = acc.type === 'relay'
-          const expiry = !isRelay && fmtExpiry(acc.tokenExpiresAt)
+          const isAggregated = acc.type === 'aggregated'
+          const expiry = !isRelay && !isAggregated && fmtExpiry(acc.tokenExpiresAt)
           const reset5h = fmtReset(acc.rateLimit?.window5h?.resetAt)
           const resetWeek = fmtReset(acc.rateLimit?.weekly?.resetAt)
 
@@ -517,9 +698,11 @@ export default function AccountsTab({ accounts, terminals, onRefresh, onNewTermi
               onClick={() => !actionsOpen && mountAccount(acc)}
             >
               <div className={`card-header ${exhausted ? 'exhausted' : ''}`}>
-                <span className="card-email" title={acc.email || acc.baseUrl}>{displayName}</span>
+                <span className="card-email" title={acc.email || acc.baseUrl || displayName}>{displayName}</span>
                 {isRelay ? (
                   <span className="plan-badge badge-relay">中转</span>
+                ) : isAggregated ? (
+                  <span className="plan-badge badge-relay">聚合</span>
                 ) : (
                   <span className={`plan-badge ${acc.plan === 'max' ? 'badge-max' : acc.plan === 'free' ? 'badge-free' : 'badge-pro'}`}>
                     {acc.plan?.toUpperCase() ?? 'PRO'}
@@ -531,7 +714,7 @@ export default function AccountsTab({ accounts, terminals, onRefresh, onNewTermi
                     {/* Sync usage / health check button */}
                     <button
                       className={`card-refresh-btn${syncingId === acc.id ? ' spinning' : ''}`}
-                      title={isRelay ? '检测连通性' : '同步用量'}
+                      title={isRelay || isAggregated ? '检测连通性' : '同步用量'}
                       onClick={async e => {
                         e.stopPropagation()
                         setSyncingId(acc.id)
@@ -560,10 +743,11 @@ export default function AccountsTab({ accounts, terminals, onRefresh, onNewTermi
                 <AccountActions
                   acc={acc}
                   onAction={action => handleCardAction(acc, action)}
-                  onClose={() => setExpandedCard(null)}
                 />
               ) : isRelay ? (
                 <RelayCardBody acc={acc} mounted={mounted} terms={terms} />
+              ) : isAggregated ? (
+                <AggregatedCardBody acc={acc} mounted={mounted} terms={terms} />
               ) : (
                 <>
                   <div className="card-body">

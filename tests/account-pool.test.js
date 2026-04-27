@@ -352,3 +352,104 @@ test('markUnauthorized works without onAccountExhausted callback', async () => {
   assert.equal(pool.getAccount('acc_1').status, 'exhausted');
   // No exception thrown is the test
 });
+
+// ── Aggregated account selection ──────────────────────────────────────────
+
+function makeAggregated(id, opts = {}) {
+  return {
+    id,
+    type: 'aggregated',
+    nickname: opts.nickname ?? `agg-${id}`,
+    providers: opts.providers ?? [
+      { name: 'P1', baseUrl: 'https://p1.example.com', credentials: { apiKey: 'sk-p1' } },
+    ],
+    routing: opts.routing ?? { opus: { providerIndex: 0, model: 'model-a' } },
+    status: opts.status ?? 'idle',
+    addedAt: opts.addedAt ?? Date.now(),
+  };
+}
+
+test('aggregated account is NOT selected in auto mode when an OAuth account is available', () => {
+  const pool = new AccountPool({
+    accounts: [makeAccount('acc_oauth'), makeAggregated('acc_agg')],
+    terminals: [],
+  });
+  const acc = pool.selectAccount(makeTerminal('sk-1', 'auto'));
+  assert.equal(acc.id, 'acc_oauth');
+  assert.equal(acc.type, undefined); // OAuth has no type field
+});
+
+test('aggregated account IS selected in auto mode when all OAuth accounts are exhausted', () => {
+  const pool = new AccountPool({
+    accounts: [
+      makeAccount('acc_oauth', { status: 'exhausted' }),
+      makeAggregated('acc_agg'),
+    ],
+    terminals: [],
+  });
+  const acc = pool.selectAccount(makeTerminal('sk-1', 'auto'));
+  assert.equal(acc.id, 'acc_agg');
+  assert.equal(acc.type, 'aggregated');
+});
+
+test('aggregated account IS selected in auto mode when all OAuth accounts are cooling', () => {
+  const now = Date.now();
+  const pool = new AccountPool({
+    accounts: [
+      makeAccount('acc_oauth', { utilization: 1.0, w5hResetAt: now + 60000, w5hStatus: 'blocked' }),
+      makeAggregated('acc_agg'),
+    ],
+    terminals: [],
+  });
+  const acc = pool.selectAccount(makeTerminal('sk-1', 'auto'));
+  assert.equal(acc.id, 'acc_agg');
+});
+
+test('manual mode pins to an aggregated account when specified', () => {
+  const pool = new AccountPool({
+    accounts: [makeAccount('acc_oauth'), makeAggregated('acc_agg')],
+    terminals: [],
+  });
+  const acc = pool.selectAccount(makeTerminal('sk-1', 'manual', 'acc_agg'));
+  assert.equal(acc.id, 'acc_agg');
+  assert.equal(acc.type, 'aggregated');
+});
+
+test('exhausted aggregated accounts are not selected', () => {
+  const pool = new AccountPool({
+    accounts: [
+      makeAccount('acc_oauth', { status: 'exhausted' }),
+      makeAggregated('acc_agg', { status: 'exhausted' }),
+    ],
+    terminals: [],
+  });
+  assert.throws(
+    () => pool.selectAccount(makeTerminal('sk-1', 'auto')),
+    { message: /503/ },
+  );
+});
+
+test('selectFallback prefers aggregated over cooling OAuth', () => {
+  const now = Date.now();
+  const pool = new AccountPool({
+    accounts: [
+      makeAccount('acc_oauth', { utilization: 1.0, w5hResetAt: now + 60000, w5hStatus: 'blocked' }),
+      makeAggregated('acc_agg'),
+    ],
+    terminals: [],
+  });
+  const fb = pool.selectFallback(new Set());
+  assert.equal(fb.id, 'acc_agg');
+});
+
+test('ensureFreshToken returns aggregated account unchanged', async () => {
+  const agg = makeAggregated('acc_agg');
+  const pool = new AccountPool({
+    accounts: [agg],
+    terminals: [],
+    configStore: { readAccounts: async () => [], writeAccounts: async () => {} },
+  });
+  const result = await pool.ensureFreshToken(agg);
+  assert.equal(result.id, 'acc_agg');
+  assert.equal(result.providers?.[0]?.credentials?.apiKey, 'sk-p1');
+});
