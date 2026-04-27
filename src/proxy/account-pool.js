@@ -320,9 +320,25 @@ export class AccountPool {
         for (const freshAcc of fresh) {
           const mem = this.#accounts.find(a => a.id === freshAcc.id);
           if (mem) {
-            // Only update credentials if they changed (admin refreshed token)
-            if (freshAcc.credentials?.accessToken !== mem.credentials?.accessToken) {
-              Object.assign(mem.credentials, freshAcc.credentials);
+            // Preserve in-memory runtime state (fresher than disk)
+            const preservedRateLimit = mem.rateLimit;
+            const preservedCooldown = mem.cooldownUntil;
+            const preservedHealth = mem.health;
+            const preservedProviderHealths = mem.type === 'aggregated' && Array.isArray(mem.providers)
+              ? mem.providers.map(p => p.health)
+              : [];
+
+            // Full replace from disk
+            Object.assign(mem, freshAcc);
+
+            // Restore preserved state
+            mem.rateLimit = preservedRateLimit;
+            mem.cooldownUntil = preservedCooldown;
+            mem.health = preservedHealth;
+            if (Array.isArray(mem.providers) && preservedProviderHealths.length) {
+              for (let i = 0; i < Math.min(mem.providers.length, preservedProviderHealths.length); i++) {
+                mem.providers[i].health = preservedProviderHealths[i];
+              }
             }
           }
         }
