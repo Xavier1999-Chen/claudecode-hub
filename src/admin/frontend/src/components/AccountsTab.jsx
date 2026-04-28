@@ -489,6 +489,7 @@ export default function AccountsTab({ accounts, terminals, onRefresh, onNewTermi
       if (acc.status === 'exhausted') return 'dot-red'
       // aggregated: check all provider healths
       if (acc.type === 'aggregated' && acc.providers) {
+        if (isRateLimited(acc)) return 'dot-red'
         const allOnline = acc.providers.every(p => !p.health || p.health.status === 'online')
         const anyOffline = acc.providers.some(p => p.health?.status === 'offline')
         if (anyOffline) return 'dot-red'
@@ -702,7 +703,13 @@ export default function AccountsTab({ accounts, terminals, onRefresh, onNewTermi
                 {isRelay ? (
                   <span className="plan-badge badge-relay">中转</span>
                 ) : isAggregated ? (
-                  <span className="plan-badge badge-relay">聚合</span>
+                  isAdmin ? (
+                    <span className="plan-badge badge-relay">聚合</span>
+                  ) : (
+                    <span className={`plan-badge ${acc.plan === 'max' || acc.plan === 'max_20x' ? 'badge-max' : 'badge-pro'}`}>
+                      {acc.plan === 'max_20x' ? 'MAX 20X' : acc.plan?.toUpperCase() ?? 'MAX'}
+                    </span>
+                  )
                 ) : (
                   <span className={`plan-badge ${acc.plan === 'max' ? 'badge-max' : acc.plan === 'free' ? 'badge-free' : 'badge-pro'}`}>
                     {acc.plan?.toUpperCase() ?? 'PRO'}
@@ -714,7 +721,7 @@ export default function AccountsTab({ accounts, terminals, onRefresh, onNewTermi
                     {/* Sync usage / health check button */}
                     <button
                       className={`card-refresh-btn${syncingId === acc.id ? ' spinning' : ''}`}
-                      title={isRelay || isAggregated ? '检测连通性' : '同步用量'}
+                      title={isRelay ? '检测连通性' : '同步用量'}
                       onClick={async e => {
                         e.stopPropagation()
                         setSyncingId(acc.id)
@@ -746,7 +753,7 @@ export default function AccountsTab({ accounts, terminals, onRefresh, onNewTermi
                 />
               ) : isRelay ? (
                 <RelayCardBody acc={acc} mounted={mounted} terms={terms} />
-              ) : isAggregated ? (
+              ) : isAggregated && isAdmin ? (
                 <AggregatedCardBody acc={acc} mounted={mounted} terms={terms} />
               ) : (
                 <>

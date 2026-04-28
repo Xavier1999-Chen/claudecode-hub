@@ -12,8 +12,10 @@ import { requireAuth, requireApproved, requireAdmin } from './auth.js';
 import { isAccountCooling, reassignCoolingTerminals } from './reassignment.js';
 import { isOAuthRevoked } from '../proxy/permission-guard.js';
 import { syncRelayHealth, listRelayModels, RELAY_HEALTH_POLL_MS } from './relay-health.js';
+import { calcVirtualRateLimit } from './virtual-ratelimit.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
+const LOGS_DIR = join(dirname(dirname(__dirname)), 'logs');
 const PORT = process.env.ADMIN_PORT ?? 3182;
 const PROXY_INTERNAL_URL = process.env.PROXY_INTERNAL_URL ?? 'http://localhost:3180';
 const DIST_DIR = join(__dirname, 'frontend', 'dist');
@@ -130,6 +132,14 @@ app.patch('/api/accounts/:id', requireAdmin, async (req, res) => {
       }
     }
   }
+  if (req.body.plan !== undefined && acc.type === 'aggregated') {
+    const validPlans = ['pro', 'max', 'max_20x'];
+    if (!validPlans.includes(req.body.plan)) {
+      return res.status(400).json({ error: 'invalid_plan', message: 'plan must be one of: pro, max, max_20x' });
+    }
+    acc.plan = req.body.plan;
+    acc.rateLimit = await calcVirtualRateLimit(acc.id, acc.plan, LOGS_DIR);
+  }
   await configStore.writeAccounts(accounts);
   res.json(sanitiseAccount(acc));
 });
@@ -219,13 +229,18 @@ app.post('/api/accounts/relay', requireAdmin, async (req, res) => {
 // Add an aggregated routing card — multiple upstream providers behind a single
 // token, with per-tier routing (Opus/Sonnet/Haiku/Image → provider + model).
 app.post('/api/accounts/aggregated', requireAdmin, async (req, res) => {
-  const { nickname, providers, routing } = req.body ?? {};
+  const { nickname, providers, routing, plan } = req.body ?? {};
   if (typeof nickname !== 'string' || nickname.trim().length === 0) {
     return res.status(400).json({ error: 'nickname_required' });
   }
   if (!Array.isArray(providers) || providers.length === 0) {
     return res.status(400).json({ error: 'providers_required', message: 'At least one provider is required' });
   }
+  const validPlans = ['pro', 'max', 'max_20x'];
+  if (plan !== undefined && !validPlans.includes(plan)) {
+    return res.status(400).json({ error: 'invalid_plan', message: 'plan must be one of: pro, max, max_20x' });
+  }
+  const selectedPlan = plan ?? 'max';
   const normalisedProviders = [];
   for (const p of providers) {
     if (typeof p.name !== 'string' || p.name.trim().length === 0) {
@@ -258,6 +273,7 @@ app.post('/api/accounts/aggregated', requireAdmin, async (req, res) => {
     id: `acc_${randomBytes(6).toString('hex')}`,
     type: 'aggregated',
     nickname: nickname.trim(),
+    plan: selectedPlan,
     providers: normalisedProviders,
     routing: normalisedRouting,
     status: 'idle',
@@ -460,9 +476,14 @@ async function probeAndCacheRelay(acc) {
 }
 
 async function syncRateLimit(acc) {
-  // Relay / Aggregated accounts: probe health instead of reading Anthropic rate-limit headers.
-  if (acc.type === 'relay' || acc.type === 'aggregated') {
+  // Relay accounts: probe health instead of reading Anthropic rate-limit headers.
+  if (acc.type === 'relay') {
     await probeAndCacheRelay(acc);
+    return;
+  }
+  // Aggregated accounts: compute virtual rate limit from usage.jsonl.
+  if (acc.type === 'aggregated') {
+    acc.rateLimit = await calcVirtualRateLimit(acc.id, acc.plan ?? 'max', LOGS_DIR);
     return;
   }
   try {
@@ -570,6 +591,8 @@ function sanitiseAccount(acc) {
     const hasCredentials = providers.some(p => p.hasApiKey);
     return {
       ...rest,
+      plan: acc.plan ?? 'max',
+      rateLimit: acc.rateLimit ?? null,
       providers,
       hasCredentials,
     };
@@ -762,10 +785,20 @@ setInterval(syncProxyTerminals, 30_000).unref();
 async function probeAllRelays() {
   try {
     const accounts = await configStore.readAccounts();
+    let dirty = false;
     for (const acc of accounts) {
       if (acc.type !== 'relay' && acc.type !== 'aggregated') continue;
       if (acc.status === 'exhausted') continue;
-      await probeAndCacheRelay(acc);
+      if (acc.type === 'aggregated') {
+        acc.rateLimit = await calcVirtualRateLimit(acc.id, acc.plan ?? 'max', LOGS_DIR);
+        dirty = true;
+      } else {
+        await probeAndCacheRelay(acc);
+        dirty = true;
+      }
+    }
+    if (dirty) {
+      await configStore.writeAccounts(accounts);
     }
   } catch (err) {
     console.error('[relay-poll] error:', err.message);

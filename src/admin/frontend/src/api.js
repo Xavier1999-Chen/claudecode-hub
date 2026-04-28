@@ -249,13 +249,14 @@ export async function addRelayAccount({ nickname, baseUrl, apiKey, modelMap }) {
   })
 }
 
-export async function addAggregatedAccount({ nickname, providers, routing }) {
+export async function addAggregatedAccount({ nickname, providers, routing, plan }) {
   if (USE_MOCK) {
     await delay(400)
     const newAcc = {
       id: 'acc_agg' + Date.now(),
       type: 'aggregated',
       nickname,
+      plan: plan ?? 'max',
       status: 'idle',
       hasCredentials: true,
       addedAt: Date.now(),
@@ -272,7 +273,7 @@ export async function addAggregatedAccount({ nickname, providers, routing }) {
   }
   return apiJson('/api/accounts/aggregated', {
     method: 'POST',
-    body: JSON.stringify({ nickname, providers, routing }),
+    body: JSON.stringify({ nickname, providers, routing, plan }),
   })
 }
 
