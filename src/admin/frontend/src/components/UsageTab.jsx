@@ -9,7 +9,10 @@ import {
 const PALETTE = ['#E87040', '#93c5fd', '#6ee7b7', '#c4b5fd', '#fde68a', '#f9a8d4', '#5eead4']
 const MODEL_COLORS = { sonnet: '#E87040', haiku: '#FDDCCC', opus: '#C0532A' }
 
-function modelKey(mdl) {
+function modelKey(mdl, tier) {
+  // tier 是 proxy 端按"原始请求的模型前缀"记录的归一化字段，
+  // 优先采用，避免聚合账号 upstream 模型名（如 kimi-for-coding）被误归到 sonnet。
+  if (tier === 'opus' || tier === 'sonnet' || tier === 'haiku') return tier
   if (!mdl) return 'unknown'
   if (mdl.includes('opus')) return 'opus'
   if (mdl.includes('haiku')) return 'haiku'
@@ -192,7 +195,7 @@ export default function UsageTab({ accounts, terminals }) {
   const donutData = useMemo(() => {
     const map = {}
     for (const r of records) {
-      const k = modelKey(r.mdl)
+      const k = modelKey(r.mdl, r.tier)
       map[k] = (map[k] ?? 0) + valueOf(r, viewMode)
     }
     return Object.entries(map).map(([k, v]) => ({ name: modelLabel(k), value: v, color: MODEL_COLORS[k] ?? '#a8a29e' }))
@@ -223,15 +226,12 @@ export default function UsageTab({ accounts, terminals }) {
     const recs = records.filter(r => groupKey(r) === selectedBreakdown)
     const map = {}
     for (const r of recs) {
-      const m = r.mdl ?? 'unknown'
-      map[m] = (map[m] ?? 0) + valueOf(r, viewMode)
+      const key = modelKey(r.mdl, r.tier)
+      map[key] = (map[key] ?? 0) + valueOf(r, viewMode)
     }
     const MODEL_ORDER = ['haiku', 'sonnet', 'opus']
     return Object.entries(map)
-      .map(([mdl, value]) => {
-        const key = modelKey(mdl)
-        return { name: modelLabel(key), value, color: MODEL_COLORS[key] ?? '#a8a29e', _order: MODEL_ORDER.indexOf(key) }
-      })
+      .map(([key, value]) => ({ name: modelLabel(key), value, color: MODEL_COLORS[key] ?? '#a8a29e', _order: MODEL_ORDER.indexOf(key) }))
       .sort((a, b) => a._order - b._order)
   }, [records, selectedBreakdown, group, viewMode])
 
@@ -250,7 +250,7 @@ export default function UsageTab({ accounts, terminals }) {
       g.inTokens += r.in ?? 0
       g.outTokens += r.out ?? 0
       g.usd += r.usd ?? 0
-      const bucket = g[modelKey(r.mdl)] ?? g.other
+      const bucket = g[modelKey(r.mdl, r.tier)] ?? g.other
       bucket.in += r.in ?? 0
       bucket.out += r.out ?? 0
     }
