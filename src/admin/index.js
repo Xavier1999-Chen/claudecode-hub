@@ -791,6 +791,7 @@ async function probeAllRelays() {
       if (acc.status === 'exhausted') continue;
       if (acc.type === 'aggregated') {
         acc.rateLimit = await calcVirtualRateLimit(acc.id, acc.plan ?? 'max', LOGS_DIR);
+        await probeAndCacheRelay(acc); // 同时探测 provider 健康
         dirty = true;
       } else {
         await probeAndCacheRelay(acc);

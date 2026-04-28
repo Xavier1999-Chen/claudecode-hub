@@ -20,12 +20,12 @@ export function hasImageContent(body) {
 
 export function resolveAggregatedProvider(body, account) {
   const hasImage = hasImageContent(body);
+  const model = body.model ?? '';
   let route;
 
   if (hasImage) {
     route = account.routing?.image ?? account.routing?.opus;
   } else {
-    const model = body.model ?? '';
     if (model.startsWith('claude-opus')) route = account.routing?.opus;
     else if (model.startsWith('claude-sonnet')) route = account.routing?.sonnet;
     else if (model.startsWith('claude-haiku')) route = account.routing?.haiku;
