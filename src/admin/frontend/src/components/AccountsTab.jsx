@@ -702,7 +702,13 @@ export default function AccountsTab({ accounts, terminals, onRefresh, onNewTermi
                 {isRelay ? (
                   <span className="plan-badge badge-relay">中转</span>
                 ) : isAggregated ? (
-                  <span className="plan-badge badge-relay">聚合</span>
+                  isAdmin ? (
+                    <span className="plan-badge badge-relay">聚合</span>
+                  ) : (
+                    <span className={`plan-badge ${acc.plan === 'max' || acc.plan === 'max_20x' ? 'badge-max' : 'badge-pro'}`}>
+                      {acc.plan === 'max_20x' ? 'MAX 20X' : acc.plan?.toUpperCase() ?? 'MAX'}
+                    </span>
+                  )
                 ) : (
                   <span className={`plan-badge ${acc.plan === 'max' ? 'badge-max' : acc.plan === 'free' ? 'badge-free' : 'badge-pro'}`}>
                     {acc.plan?.toUpperCase() ?? 'PRO'}
@@ -746,7 +752,7 @@ export default function AccountsTab({ accounts, terminals, onRefresh, onNewTermi
                 />
               ) : isRelay ? (
                 <RelayCardBody acc={acc} mounted={mounted} terms={terms} />
-              ) : isAggregated ? (
+              ) : isAggregated && isAdmin ? (
                 <AggregatedCardBody acc={acc} mounted={mounted} terms={terms} />
               ) : (
                 <>
