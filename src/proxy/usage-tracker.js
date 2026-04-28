@@ -61,9 +61,10 @@ export function createUsageTapper({ accountId, terminalId, model, tier, logsDir 
       buffer = lines.pop();
 
       for (const line of lines) {
-        if (!line.startsWith('data: ')) continue;
+        if (!line.startsWith('data:')) continue;
+        const payload = line[5] === ' ' ? line.slice(6) : line.slice(5);
         try {
-          const event = JSON.parse(line.slice(6));
+          const event = JSON.parse(payload);
           if (event.type === 'message_start' && event.message?.usage) {
             inTok += event.message.usage.input_tokens ?? 0;
           }

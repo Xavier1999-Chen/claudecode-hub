@@ -88,6 +88,33 @@ test('passes chunks through unchanged', async () => {
   assert.equal(chunks.join(''), sse);
 });
 
+test('parses SSE without space after data: colon (DeepSeek/Kimi format)', async () => {
+  const start = { type: 'message_start', message: { usage: { input_tokens: 77 } } };
+  const delta = { type: 'message_delta', usage: { output_tokens: 33 } };
+  // Note: no space after "data:" — some Anthropic-compatible relays emit this format.
+  const sse = `event:message_start\ndata:${JSON.stringify(start)}\n\nevent:message_delta\ndata:${JSON.stringify(delta)}\n\n`;
+
+  const tapper = createUsageTapper({
+    accountId: 'acc_nospace',
+    terminalId: 'sk-hub-kimi',
+    model: 'kimi-for-coding',
+    tier: 'sonnet',
+    logsDir: dir,
+  });
+
+  const source = Readable.from([Buffer.from(sse)]);
+  await pipeline(source, tapper, async function*(stream) {
+    for await (const _ of stream) { /* drain */ }
+  });
+
+  const logPath = join(dir, 'acc_nospace', 'usage.jsonl');
+  const lines = (await readFile(logPath, 'utf8')).trim().split('\n');
+  assert.equal(lines.length, 1);
+  const record = JSON.parse(lines[0]);
+  assert.equal(record.in, 77);
+  assert.equal(record.out, 33);
+});
+
 test('writes usage on close even if flush is not called (client disconnect)', async () => {
   const start = { type: 'message_start', message: { usage: { input_tokens: 200 } } };
   const delta = { type: 'message_delta', usage: { output_tokens: 80 } };
