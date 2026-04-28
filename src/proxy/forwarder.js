@@ -253,8 +253,11 @@ export async function forwardRequest(req, res, account, terminalId, pool, triedI
   // Detect SSE
   const ct = upRes.headers.get('content-type') ?? '';
   const model = isAggregated ? aggregatedProvider.targetModel : (body.model ?? 'unknown');
+  const resolvedTier = isAggregated && aggregatedProvider?.resolvedTier
+    ? aggregatedProvider.resolvedTier
+    : requestedTier;
   if (ct.includes('text/event-stream')) {
-    const tapper = createUsageTapper({ accountId: account.id, terminalId, model, tier: requestedTier });
+    const tapper = createUsageTapper({ accountId: account.id, terminalId, model, tier: resolvedTier });
     upRes.body.pipe(tapper).pipe(res);
     res.on('close', () => { if (!tapper.destroyed) tapper.destroy(); });
     upRes.body.on('error', () => res.end());
@@ -266,7 +269,7 @@ export async function forwardRequest(req, res, account, terminalId, pool, triedI
       if (json.usage) {
         const { input_tokens: inTok = 0, output_tokens: outTok = 0 } = json.usage;
         // Write via tapper helper directly
-        const tapper = createUsageTapper({ accountId: account.id, terminalId, model, tier: requestedTier });
+        const tapper = createUsageTapper({ accountId: account.id, terminalId, model, tier: resolvedTier });
         const fakeEvent = JSON.stringify({
           type: 'message_delta',
           usage: { input_tokens: inTok, output_tokens: outTok },

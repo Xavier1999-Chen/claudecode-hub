@@ -36,10 +36,17 @@ export function resolveAggregatedProvider(body, account) {
   const provider = account.providers?.[route.providerIndex];
   if (!provider) return null;
 
+  const resolvedTier = hasImage ? 'image'
+    : model.startsWith('claude-opus') ? 'opus'
+    : model.startsWith('claude-sonnet') ? 'sonnet'
+    : model.startsWith('claude-haiku') ? 'haiku'
+    : 'sonnet';
+
   return {
     baseUrl: provider.baseUrl,
     apiKey: provider.credentials?.apiKey,
     targetModel: route.model,
+    resolvedTier,
   };
 }
 
