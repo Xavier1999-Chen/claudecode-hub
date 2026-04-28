@@ -61,7 +61,7 @@ export async function calcVirtualRateLimit(accountId, plan, logsDir) {
 
   for (const r of state.records) {
     const w = TIER_WEIGHT[r.tier] ?? TIER_WEIGHT.sonnet;
-    const tokens = (r.in ?? 0) + (r.out ?? 0);
+    const tokens = Math.max(0, r.in ?? 0) + Math.max(0, r.out ?? 0);
     const weighted = tokens * w;
     if (r.ts >= fiveHAgo) weighted5h += weighted;
     weighted7d += weighted;
