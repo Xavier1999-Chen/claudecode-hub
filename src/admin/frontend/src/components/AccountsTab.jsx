@@ -489,6 +489,7 @@ export default function AccountsTab({ accounts, terminals, onRefresh, onNewTermi
       if (acc.status === 'exhausted') return 'dot-red'
       // aggregated: check all provider healths
       if (acc.type === 'aggregated' && acc.providers) {
+        if (isRateLimited(acc)) return 'dot-red'
         const allOnline = acc.providers.every(p => !p.health || p.health.status === 'online')
         const anyOffline = acc.providers.some(p => p.health?.status === 'offline')
         if (anyOffline) return 'dot-red'
@@ -720,7 +721,7 @@ export default function AccountsTab({ accounts, terminals, onRefresh, onNewTermi
                     {/* Sync usage / health check button */}
                     <button
                       className={`card-refresh-btn${syncingId === acc.id ? ' spinning' : ''}`}
-                      title={isRelay || isAggregated ? '检测连通性' : '同步用量'}
+                      title={isRelay ? '检测连通性' : '同步用量'}
                       onClick={async e => {
                         e.stopPropagation()
                         setSyncingId(acc.id)

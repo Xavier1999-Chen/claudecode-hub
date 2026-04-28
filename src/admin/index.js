@@ -15,6 +15,7 @@ import { syncRelayHealth, listRelayModels, RELAY_HEALTH_POLL_MS } from './relay-
 import { calcVirtualRateLimit } from './virtual-ratelimit.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
+const LOGS_DIR = join(dirname(dirname(__dirname)), 'logs');
 const PORT = process.env.ADMIN_PORT ?? 3182;
 const PROXY_INTERNAL_URL = process.env.PROXY_INTERNAL_URL ?? 'http://localhost:3180';
 const DIST_DIR = join(__dirname, 'frontend', 'dist');
@@ -133,9 +134,11 @@ app.patch('/api/accounts/:id', requireAdmin, async (req, res) => {
   }
   if (req.body.plan !== undefined && acc.type === 'aggregated') {
     const validPlans = ['pro', 'max', 'max_20x'];
-    if (validPlans.includes(req.body.plan)) {
-      acc.plan = req.body.plan;
+    if (!validPlans.includes(req.body.plan)) {
+      return res.status(400).json({ error: 'invalid_plan', message: 'plan must be one of: pro, max, max_20x' });
     }
+    acc.plan = req.body.plan;
+    acc.rateLimit = await calcVirtualRateLimit(acc.id, acc.plan, LOGS_DIR);
   }
   await configStore.writeAccounts(accounts);
   res.json(sanitiseAccount(acc));
@@ -234,7 +237,10 @@ app.post('/api/accounts/aggregated', requireAdmin, async (req, res) => {
     return res.status(400).json({ error: 'providers_required', message: 'At least one provider is required' });
   }
   const validPlans = ['pro', 'max', 'max_20x'];
-  const selectedPlan = validPlans.includes(plan) ? plan : 'max';
+  if (plan !== undefined && !validPlans.includes(plan)) {
+    return res.status(400).json({ error: 'invalid_plan', message: 'plan must be one of: pro, max, max_20x' });
+  }
+  const selectedPlan = plan ?? 'max';
   const normalisedProviders = [];
   for (const p of providers) {
     if (typeof p.name !== 'string' || p.name.trim().length === 0) {
@@ -477,9 +483,7 @@ async function syncRateLimit(acc) {
   }
   // Aggregated accounts: compute virtual rate limit from usage.jsonl.
   if (acc.type === 'aggregated') {
-    const projectRoot = dirname(fileURLToPath(new URL('../..', import.meta.url)));
-    const logsDir = join(projectRoot, 'logs');
-    acc.rateLimit = await calcVirtualRateLimit(acc.id, acc.plan ?? 'max', logsDir);
+    acc.rateLimit = await calcVirtualRateLimit(acc.id, acc.plan ?? 'max', LOGS_DIR);
     return;
   }
   try {
@@ -781,14 +785,12 @@ setInterval(syncProxyTerminals, 30_000).unref();
 async function probeAllRelays() {
   try {
     const accounts = await configStore.readAccounts();
-    const projectRoot = dirname(fileURLToPath(new URL('../..', import.meta.url)));
-    const logsDir = join(projectRoot, 'logs');
     let dirty = false;
     for (const acc of accounts) {
       if (acc.type !== 'relay' && acc.type !== 'aggregated') continue;
       if (acc.status === 'exhausted') continue;
       if (acc.type === 'aggregated') {
-        acc.rateLimit = await calcVirtualRateLimit(acc.id, acc.plan ?? 'max', logsDir);
+        acc.rateLimit = await calcVirtualRateLimit(acc.id, acc.plan ?? 'max', LOGS_DIR);
         dirty = true;
       } else {
         await probeAndCacheRelay(acc);
