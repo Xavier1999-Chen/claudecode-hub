@@ -26,7 +26,7 @@ function costPerToken(model) {
  * 2. Accumulates token counts from message_start (input) and message_delta (output),
  *    then writes one usage record per request to usage.jsonl.
  */
-export function createUsageTapper({ accountId, terminalId, model, logsDir = DEFAULT_LOGS_DIR }) {
+export function createUsageTapper({ accountId, terminalId, model, tier, logsDir = DEFAULT_LOGS_DIR }) {
   let buffer = '';
   let inTok = 0;
   let outTok = 0;
@@ -43,6 +43,7 @@ export function createUsageTapper({ accountId, terminalId, model, logsDir = DEFA
         terminalId,
         accountId,
         mdl: model,
+        tier: tier || 'sonnet',
         in: inTok,
         out: outTok,
         usd: Math.round(usd * 1e8) / 1e8,

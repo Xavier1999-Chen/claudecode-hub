@@ -11,7 +11,7 @@ let dir;
 test.before(async () => { dir = await mkdtemp(join(tmpdir(), 'hub-usage-')); });
 test.after(async () => { await rm(dir, { recursive: true }); });
 
-test('parses SSE message_start + message_delta and writes usage.jsonl', async () => {
+test('parses SSE message_start + message_delta and writes usage.jsonl with tier', async () => {
   const start = {
     type: 'message_start',
     message: { usage: { input_tokens: 100 } },
@@ -27,6 +27,7 @@ test('parses SSE message_start + message_delta and writes usage.jsonl', async ()
     accountId: 'acc_1',
     terminalId: 'sk-hub-abc',
     model: 'claude-sonnet-4-6',
+    tier: 'sonnet',
     logsDir: dir,
   });
 
@@ -44,8 +45,31 @@ test('parses SSE message_start + message_delta and writes usage.jsonl', async ()
   assert.equal(record.in, 100);
   assert.equal(record.out, 50);
   assert.match(record.mdl, /sonnet/);
+  assert.equal(record.tier, 'sonnet');
   assert.ok(typeof record.ts === 'number');
   assert.ok(typeof record.usd === 'number');
+});
+
+test('defaults tier to sonnet when not provided', async () => {
+  const start = { type: 'message_start', message: { usage: { input_tokens: 10 } } };
+  const delta = { type: 'message_delta', usage: { output_tokens: 5 } };
+  const sse = `data: ${JSON.stringify(start)}\n\ndata: ${JSON.stringify(delta)}\n\n`;
+
+  const tapper = createUsageTapper({
+    accountId: 'acc_1b',
+    terminalId: 'sk-hub-def',
+    model: 'claude-opus-4-7',
+    logsDir: dir,
+  });
+
+  const source = Readable.from([Buffer.from(sse)]);
+  await pipeline(source, tapper);
+
+  const logPath = join(dir, 'acc_1b', 'usage.jsonl');
+  const lines = (await readFile(logPath, 'utf8')).trim().split('\n');
+  assert.equal(lines.length, 1);
+  const record = JSON.parse(lines[0]);
+  assert.equal(record.tier, 'sonnet');
 });
 
 test('passes chunks through unchanged', async () => {
