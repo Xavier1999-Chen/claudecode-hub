@@ -67,22 +67,30 @@ async function doCalc(accountId, plan, logsDir) {
     state.lastOffset = stats.size;
   }
 
-  // 清理 7 天外记录（7d 窗口最长）
+  // 用固定窗口而非滑动窗口（与 Anthropic 官方计量 + UI 显示的 resetAt 边界对齐）：
+  //   5h 窗口 = [上一个 UTC 对齐的 5h 边界, now]
+  //   7d 窗口 = [上一个周一 00:00 UTC, now]
+  // 滑动窗口会让记录在 reset 后仍计入，跟"reset 后归零"的预期不符。
   const now = Date.now();
-  const cutoff = now - 7 * 86400_000;
-  state.records = state.records.filter(r => r.ts >= cutoff);
+  const HOUR = 3600_000;
+  const fiveHStart = Math.floor(now / (5 * HOUR)) * (5 * HOUR);
+  const dNow = new Date(now);
+  const dayNow = dNow.getUTCDay();
+  const daysSinceMonday = (dayNow + 6) % 7; // Sun=0→6, Mon=1→0, …, Sat=6→5
+  const weekStart = Date.UTC(dNow.getUTCFullYear(), dNow.getUTCMonth(), dNow.getUTCDate() - daysSinceMonday);
+
+  // 清理早于 7d 窗口起点的记录（永远不再被任何窗口需要）
+  state.records = state.records.filter(r => r.ts >= weekStart);
 
   // 加权累加
   let weighted5h = 0;
   let weighted7d = 0;
-  const fiveHAgo = now - 5 * 3600_000;
-
   for (const r of state.records) {
     const w = TIER_WEIGHT[r.tier] ?? TIER_WEIGHT.sonnet;
     const tokens = Math.max(0, r.in ?? 0) + Math.max(0, r.out ?? 0);
     const weighted = tokens * w;
-    if (r.ts >= fiveHAgo) weighted5h += weighted;
-    weighted7d += weighted;
+    if (r.ts >= fiveHStart) weighted5h += weighted;
+    if (r.ts >= weekStart) weighted7d += weighted;
   }
 
   return makeRateLimit(weighted5h, weighted7d, plan, now);

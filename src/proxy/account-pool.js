@@ -199,8 +199,6 @@ export class AccountPool {
     if (!cb.canRequest()) throw new Error('503: account circuit breaker open');
     // 账号不可用（exhausted / cooling 含聚合虚拟限额）→ 不让 manual pin
     // 把请求送到必然失败的账号上；先尝试 fallback 到温账号，找不到再 503。
-    // admin 的 reassignCoolingTerminals 会把终端从 cooling 账号迁走，但
-    // 60s 轮询窗口内可能错过；这里是 proxy 层的兜底。
     if (acc.status === 'exhausted' || this.#isCooling(acc)) {
       const alt = this.selectFallback(new Set([accountId]));
       if (!alt) throw new Error('503: pinned account unavailable and no warm alternative');
@@ -331,9 +329,14 @@ export class AccountPool {
         for (const freshAcc of fresh) {
           const mem = this.#accounts.find(a => a.id === freshAcc.id);
           if (mem) {
-            // Preserve in-memory runtime state (fresher than disk)
-            const preservedRateLimit = mem.rateLimit;
-            const preservedCooldown = mem.cooldownUntil;
+            // OAuth: in-memory rateLimit/cooldown 来自 Anthropic 响应头，比磁盘新；
+            //   admin 探测虽偶尔更新磁盘，但仍可能落后于实时响应头。
+            // Aggregated/Relay: rateLimit 是 admin 端虚拟计算/探测的产物，proxy
+            //   自己从来不更新它（不接收上游限额头）。此时磁盘永远是"权威源"，
+            //   保留内存反而会丢弃 admin 的最新计算（如 5h 边界过后的归零）。
+            const isRelayLike = mem.type === 'relay' || mem.type === 'aggregated';
+            const preservedRateLimit = isRelayLike ? null : mem.rateLimit;
+            const preservedCooldown = isRelayLike ? null : mem.cooldownUntil;
             const preservedHealth = mem.health;
             const preservedProviderHealths = mem.type === 'aggregated' && Array.isArray(mem.providers)
               ? mem.providers.map(p => p.health)
@@ -342,9 +345,9 @@ export class AccountPool {
             // Full replace from disk
             Object.assign(mem, freshAcc);
 
-            // Restore preserved state
-            mem.rateLimit = preservedRateLimit;
-            mem.cooldownUntil = preservedCooldown;
+            // Restore preserved state — OAuth only
+            if (preservedRateLimit !== null) mem.rateLimit = preservedRateLimit;
+            if (preservedCooldown !== null) mem.cooldownUntil = preservedCooldown;
             mem.health = preservedHealth;
             if (Array.isArray(mem.providers) && preservedProviderHealths.length) {
               for (let i = 0; i < Math.min(mem.providers.length, preservedProviderHealths.length); i++) {
