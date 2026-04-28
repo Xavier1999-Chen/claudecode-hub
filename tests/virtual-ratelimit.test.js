@@ -168,3 +168,20 @@ test('different plans have different limits', async () => {
   assert.equal(rlMax.window5h.utilization, 500_000 / 2_500_000);   // 0.2
   assert.equal(rlMax20x.window5h.utilization, 500_000 / 12_500_000); // 0.04
 });
+
+test('concurrent calcs do not double-count records (race condition)', async () => {
+  const accountId = 'acc_race';
+  await writeUsageJsonl(accountId, [
+    { ts: nowMinus(1), in: 100_000, out: 50_000, tier: 'sonnet' }, // 150k * 2.0 = 300k weighted
+  ]);
+
+  // 触发 10 个并发调用，模拟 probeAllRelays + 手动 sync + sync-usage-all 同时打过来
+  const results = await Promise.all(
+    Array.from({ length: 10 }, () => calcVirtualRateLimit(accountId, 'max', dir))
+  );
+
+  // 全部应得到一致的 0.12（300k / 2.5M），任何一次出现 >0.12 即说明有重复累加
+  for (const rl of results) {
+    assert.equal(rl.window5h.utilization, 300_000 / 2_500_000);
+  }
+});

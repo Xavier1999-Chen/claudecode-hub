@@ -19,7 +19,25 @@ const LIMITS = {
 // 内存缓存：accountId → { lastOffset, records }
 const cache = new Map();
 
+// 按 accountId 串行化的 promise 队列。
+// 防止 probeAllRelays / 手动 sync / /api/sync-usage-all 并发调用导致：
+//   两个 caller 拿到相同的 lastOffset → 都从同一 offset 读取 → 各自把同一批
+//   新记录 push 进 state.records → 利用率被翻倍。
+const queues = new Map();
+
 export async function calcVirtualRateLimit(accountId, plan, logsDir) {
+  const prev = queues.get(accountId) ?? Promise.resolve();
+  const next = prev.catch(() => {}).then(() => doCalc(accountId, plan, logsDir));
+  queues.set(accountId, next);
+  try {
+    return await next;
+  } finally {
+    // 仅在本次仍是队尾时清理，避免覆盖后续排队的 promise
+    if (queues.get(accountId) === next) queues.delete(accountId);
+  }
+}
+
+async function doCalc(accountId, plan, logsDir) {
   const logPath = join(logsDir, accountId, 'usage.jsonl');
   let state = cache.get(accountId);
   if (!state) {
