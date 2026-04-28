@@ -1,9 +1,13 @@
 /**
  * Server-side mirror of the proxy's cooling detection + terminal
- * reassignment helpers. Used by admin sync-usage endpoints to
- * proactively move auto-mode terminals off accounts that have just
- * entered cooldown, without waiting for the next request to trigger
- * a 429 + fallback on the proxy side.
+ * reassignment helpers. Used by admin sync-usage endpoints and
+ * probeAllRelays to proactively move terminals off unusable accounts
+ * (cooling OR exhausted), without waiting for the next request to
+ * trigger a 429 + fallback on the proxy side.
+ *
+ * Per user requirement: 终端逃逸应忽略 mode —— manual pin 在不能转发
+ * 的账号上没意义，让 admin 主动迁走比让请求失败更友好。callers 应
+ * 传 modes=null（全部迁），保留 ['auto'] 仅供历史路径使用。
  */
 
 export function isWindowCooling(w) {

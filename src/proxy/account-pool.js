@@ -92,9 +92,11 @@ export class AccountPool {
     const oauth = eligible.filter(a => !isRelay(a));
     const warm = oauth.filter(a => !this.#isCooling(a));
     if (warm.length) return this.#leastUtilized(warm);
-    const relays = eligible.filter(isRelay);
+    // relay/aggregated 也要过滤 cooling —— 聚合账号的虚拟限额到顶时（admin 设的
+    // 策略闸门），上游虽能转发但用户希望被识别为不可用，此时不应当兜底到它上。
+    const relays = eligible.filter(a => isRelay(a) && !this.#isCooling(a));
     if (relays.length) return this.#oldestRelay(relays);
-    const cooling = oauth.filter(a => this.#isCooling(a));
+    const cooling = eligible.filter(a => this.#isCooling(a));
     if (cooling.length) return this.#soonestReset(cooling);
     return null;
   }
@@ -195,6 +197,15 @@ export class AccountPool {
     if (!acc) throw new Error('503: account not found');
     const cb = this.#ensureCB(accountId);
     if (!cb.canRequest()) throw new Error('503: account circuit breaker open');
+    // 账号不可用（exhausted / cooling 含聚合虚拟限额）→ 不让 manual pin
+    // 把请求送到必然失败的账号上；先尝试 fallback 到温账号，找不到再 503。
+    // admin 的 reassignCoolingTerminals 会把终端从 cooling 账号迁走，但
+    // 60s 轮询窗口内可能错过；这里是 proxy 层的兜底。
+    if (acc.status === 'exhausted' || this.#isCooling(acc)) {
+      const alt = this.selectFallback(new Set([accountId]));
+      if (!alt) throw new Error('503: pinned account unavailable and no warm alternative');
+      return alt;
+    }
     return acc;
   }
 

@@ -453,3 +453,62 @@ test('ensureFreshToken returns aggregated account unchanged', async () => {
   assert.equal(result.id, 'acc_agg');
   assert.equal(result.providers?.[0]?.credentials?.apiKey, 'sk-p1');
 });
+
+// ── Manual mode escapes cooling pin (Bug C) ───────────────────────────────
+
+test('manual mode with cooling aggregated pin falls back to warm OAuth', () => {
+  const now = Date.now();
+  const cool = makeAggregated('acc_agg_cool');
+  cool.rateLimit = {
+    window5h: { utilization: 1.5, resetAt: now + 60_000, status: 'blocked' },
+    weekly:   { utilization: 0.3, resetAt: now + 86_400_000, status: 'allowed' },
+  };
+  const pool = new AccountPool({
+    accounts: [cool, makeAccount('acc_warm')],
+    terminals: [],
+  });
+  const acc = pool.selectAccount(makeTerminal('sk-1', 'manual', 'acc_agg_cool'));
+  assert.notEqual(acc.id, 'acc_agg_cool');
+  assert.equal(acc.id, 'acc_warm');
+});
+
+test('manual mode with cooling OAuth pin falls back to aggregated', () => {
+  const now = Date.now();
+  const pool = new AccountPool({
+    accounts: [
+      makeAccount('acc_oauth_cool', { utilization: 1.0, w5hResetAt: now + 60_000, w5hStatus: 'blocked' }),
+      makeAggregated('acc_agg'),
+    ],
+    terminals: [],
+  });
+  const acc = pool.selectAccount(makeTerminal('sk-1', 'manual', 'acc_oauth_cool'));
+  assert.equal(acc.id, 'acc_agg');
+});
+
+test('manual mode with exhausted pin throws when no alternative exists', () => {
+  const pool = new AccountPool({
+    accounts: [makeAccount('acc_only', { status: 'exhausted' })],
+    terminals: [],
+  });
+  assert.throws(
+    () => pool.selectAccount(makeTerminal('sk-1', 'manual', 'acc_only')),
+    /503/,
+  );
+});
+
+test('selectFallback skips cooling aggregated account', () => {
+  const now = Date.now();
+  const cool = makeAggregated('acc_agg_cool');
+  cool.rateLimit = {
+    window5h: { utilization: 2.0, resetAt: now + 60_000, status: 'blocked' },
+    weekly:   { utilization: 0.3, resetAt: now + 86_400_000, status: 'allowed' },
+  };
+  const warm = makeAggregated('acc_agg_warm');
+  warm.addedAt = now - 1000; // 更老 → oldestRelay 优先
+  const pool = new AccountPool({
+    accounts: [cool, warm],
+    terminals: [],
+  });
+  const fb = pool.selectFallback(new Set());
+  assert.equal(fb.id, 'acc_agg_warm');
+});

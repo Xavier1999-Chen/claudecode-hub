@@ -76,15 +76,13 @@ app.post('/api/accounts/:id/sync-usage', requireAdmin, async (req, res) => {
   const acc = accounts.find(a => a.id === req.params.id);
   if (!acc) return res.status(404).json({ error: 'not_found' });
   try {
-    const wasExhausted = acc.status === 'exhausted';
     await syncRateLimit(acc);
     await configStore.writeAccounts(accounts);
-    if (isAccountCooling(acc)) {
-      await reassignCoolingTerminals(acc.id, accounts, ['auto'], configStore);
-    } else if (!wasExhausted && acc.status === 'exhausted') {
-      // syncRateLimit just flipped status to exhausted (OAuth revoked);
-      // move every terminal off this account — manual included, since the
-      // account is now permanently unusable.
+    // 账号不可用（冷却 OR 永久耗尽）→ 迁走所有挂载终端，含 manual。
+    // 用户明确要求："只要账号不能用，不管是不是手动模式，底下的终端都要自动逃逸"。
+    // 旧设计 (#17) 仅迁 auto，本次升级到统一逃逸：manual pin 在不能转发的账号
+    // 上没意义，让 admin 主动迁走比让请求失败更友好。
+    if (isAccountCooling(acc) || acc.status === 'exhausted') {
       await reassignCoolingTerminals(acc.id, accounts, null, configStore);
     }
     res.json(sanitiseAccount(acc));
@@ -132,6 +130,7 @@ app.patch('/api/accounts/:id', requireAdmin, async (req, res) => {
       }
     }
   }
+  let planChanged = false;
   if (req.body.plan !== undefined && acc.type === 'aggregated') {
     const validPlans = ['pro', 'max', 'max_20x'];
     if (!validPlans.includes(req.body.plan)) {
@@ -139,8 +138,13 @@ app.patch('/api/accounts/:id', requireAdmin, async (req, res) => {
     }
     acc.plan = req.body.plan;
     acc.rateLimit = await calcVirtualRateLimit(acc.id, acc.plan, LOGS_DIR);
+    planChanged = true;
   }
   await configStore.writeAccounts(accounts);
+  // 改 plan 可能让利用率突变到 ≥100%（如 max_20x → pro）→ 迁走全部终端（含 manual）。
+  if (planChanged && isAccountCooling(acc)) {
+    await reassignCoolingTerminals(acc.id, accounts, null, configStore);
+  }
   res.json(sanitiseAccount(acc));
 });
 
@@ -675,20 +679,15 @@ async function reassignTerminals(removedAccountId, availableAccounts, modes) {
 app.post('/api/sync-usage-all', requireAdmin, async (_req, res) => {
   try {
     const accounts = await configStore.readAccounts();
-    const coolingAccs = [];
-    const revokedAccs = [];
     for (const acc of accounts) {
-      const wasExhausted = acc.status === 'exhausted';
       await syncRateLimit(acc);
-      if (isAccountCooling(acc)) coolingAccs.push(acc);
-      else if (!wasExhausted && acc.status === 'exhausted') revokedAccs.push(acc);
     }
     await configStore.writeAccounts(accounts);
-    for (const acc of coolingAccs) {
-      await reassignCoolingTerminals(acc.id, accounts, ['auto'], configStore);
-    }
-    for (const acc of revokedAccs) {
-      await reassignCoolingTerminals(acc.id, accounts, null, configStore);
+    // 不可用账号（cooling 或 exhausted）→ 迁走所有终端（含 manual）
+    for (const acc of accounts) {
+      if (acc.status === 'exhausted' || isAccountCooling(acc)) {
+        await reassignCoolingTerminals(acc.id, accounts, null, configStore);
+      }
     }
     res.json(accounts.map(sanitiseAccount));
   } catch (err) {
@@ -800,6 +799,16 @@ async function probeAllRelays() {
     }
     if (dirty) {
       await configStore.writeAccounts(accounts);
+    }
+    // 安全网：每轮无条件检查所有 cooling/exhausted 账号，把挂载在上面的
+    // 终端迁走（含 manual）。不能只在"刚进入 cooling"的瞬间触发，否则
+    //   - 重启后从磁盘读到的账号本就是 cooling，永远跳过
+    //   - 用户事后手动挂载到 cooling 账号上，永远跳过
+    // reassignCoolingTerminals 在没有匹配终端或没有温账号时是 no-op，多次调用安全。
+    for (const acc of accounts) {
+      if (acc.status === 'exhausted' || isAccountCooling(acc)) {
+        await reassignCoolingTerminals(acc.id, accounts, null, configStore);
+      }
     }
   } catch (err) {
     console.error('[relay-poll] error:', err.message);
