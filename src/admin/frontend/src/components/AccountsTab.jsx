@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { updateTerminal, forceOnline, forceOffline, deleteAccount, renameAccount, refreshAccountToken, syncAccountUsage, updateRelayModelMap, updateProbeModel, listRelayModels, updateAggregatedRouting, updateAggregatedProbes } from '../api.js'
+import { updateTerminal, forceOnline, forceOffline, deleteAccount, renameAccount, refreshAccountToken, syncAccountUsage, updateRelayModelMap, updateProbeModel, listRelayModels, updateAggregatedRouting, updateAggregatedProbes, updateAggregatedPlan } from '../api.js'
 
 function fmtExpiry(ts) {
   if (!ts) return null
@@ -265,6 +265,44 @@ function AggregatedRoutingEditor({ acc, onAction }) {
 }
 
 // Inline editor for aggregated account probe models
+function AggregatedPlanEditor({ acc, onAction }) {
+  const [editing, setEditing] = useState(false)
+  const [busy, setBusy] = useState(false)
+  const [plan, setPlan] = useState(acc.plan ?? 'max')
+
+  async function save() {
+    setBusy(true)
+    try { await onAction('plan:' + plan) } finally { setBusy(false) }
+    setEditing(false)
+  }
+
+  if (!editing) {
+    const label = acc.plan === 'max_20x' ? 'MAX 20x' : (acc.plan?.toUpperCase() ?? 'MAX')
+    return (
+      <button className="action-btn" onClick={() => { setPlan(acc.plan ?? 'max'); setEditing(true) }}>
+        🏷 修改等级（当前：{label}）
+      </button>
+    )
+  }
+
+  return (
+    <div style={{ fontSize: 12, padding: '4px 0' }}>
+      <div style={{ display: 'flex', gap: 6, alignItems: 'center', marginBottom: 6 }}>
+        <span style={{ width: 80, flexShrink: 0, color: '#78716c', fontWeight: 500 }}>等级</span>
+        <select className="inline-edit" value={plan} onChange={e => setPlan(e.target.value)} style={{ flex: 1 }}>
+          <option value="pro">PRO</option>
+          <option value="max">MAX</option>
+          <option value="max_20x">MAX 20x</option>
+        </select>
+      </div>
+      <div style={{ display: 'flex', gap: 6, marginTop: 6 }}>
+        <button className="btn btn-primary btn-sm" onClick={save} disabled={busy}>{busy ? '…' : '保存'}</button>
+        <button className="btn btn-ghost btn-sm" onClick={() => setEditing(false)}>取消</button>
+      </div>
+    </div>
+  )
+}
+
 function AggregatedProbeEditor({ acc, onAction }) {
   const [editing, setEditing] = useState(false)
   const [busy, setBusy] = useState(false)
@@ -411,6 +449,9 @@ function AccountActions({ acc, onAction }) {
           🩺 设置探测模型
         </button>
       )}
+
+      {/* Aggregated plan editing */}
+      {acc.type === 'aggregated' && <AggregatedPlanEditor acc={acc} onAction={onAction} />}
 
       {/* Aggregated routing editing */}
       {acc.type === 'aggregated' && <AggregatedRoutingEditor acc={acc} onAction={onAction} />}
@@ -579,6 +620,8 @@ export default function AccountsTab({ accounts, terminals, onRefresh, onNewTermi
       await updateAggregatedRouting(acc.id, JSON.parse(action.slice(8)))
     } else if (action.startsWith('probes:')) {
       await updateAggregatedProbes(acc.id, JSON.parse(action.slice(7)))
+    } else if (action.startsWith('plan:')) {
+      await updateAggregatedPlan(acc.id, action.slice(5))
     } else if (action === 'probe-modal') {
       setProbeModalAcc(acc)
       return
