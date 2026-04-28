@@ -66,11 +66,22 @@ export async function forwardRequest(req, res, account, terminalId, pool, triedI
   const isAggregated = account.type === 'aggregated';
   let aggregatedProvider = null;
 
+  // Parse body once at the top (used for tier detection and aggregated routing)
+  let body = {};
+  let requestedTier = 'sonnet';
+  try {
+    body = JSON.parse(req.rawBody?.toString() ?? '{}');
+    const model = body.model ?? '';
+    requestedTier = model.startsWith('claude-opus') ? 'opus'
+                  : model.startsWith('claude-sonnet') ? 'sonnet'
+                  : model.startsWith('claude-haiku') ? 'haiku'
+                  : 'sonnet';
+  } catch {
+    body = {};
+  }
+
   if (isAggregated) {
-    try {
-      const body = JSON.parse(req.rawBody?.toString() ?? '{}');
-      aggregatedProvider = resolveAggregatedProvider(body, account);
-    } catch { /* invalid JSON handled below */ }
+    aggregatedProvider = resolveAggregatedProvider(body, account);
     if (!aggregatedProvider) {
       return res.status(502).json({ error: 'aggregated_routing_unresolved', message: 'No provider matched for this request' });
     }
@@ -241,21 +252,24 @@ export async function forwardRequest(req, res, account, terminalId, pool, triedI
 
   // Detect SSE
   const ct = upRes.headers.get('content-type') ?? '';
-  const model = isAggregated ? aggregatedProvider.targetModel : detectModel(req);
+  const model = isAggregated ? aggregatedProvider.targetModel : (body.model ?? 'unknown');
+  const resolvedTier = isAggregated && aggregatedProvider?.resolvedTier
+    ? aggregatedProvider.resolvedTier
+    : requestedTier;
   if (ct.includes('text/event-stream')) {
-    const tapper = createUsageTapper({ accountId: account.id, terminalId, model });
+    const tapper = createUsageTapper({ accountId: account.id, terminalId, model, tier: resolvedTier });
     upRes.body.pipe(tapper).pipe(res);
     res.on('close', () => { if (!tapper.destroyed) tapper.destroy(); });
     upRes.body.on('error', () => res.end());
   } else {
-    const body = Buffer.from(await upRes.arrayBuffer());
+    const resBody = Buffer.from(await upRes.arrayBuffer());
     // Try to capture usage from JSON response
     try {
-      const json = JSON.parse(body.toString());
+      const json = JSON.parse(resBody.toString());
       if (json.usage) {
         const { input_tokens: inTok = 0, output_tokens: outTok = 0 } = json.usage;
         // Write via tapper helper directly
-        const tapper = createUsageTapper({ accountId: account.id, terminalId, model });
+        const tapper = createUsageTapper({ accountId: account.id, terminalId, model, tier: resolvedTier });
         const fakeEvent = JSON.stringify({
           type: 'message_delta',
           usage: { input_tokens: inTok, output_tokens: outTok },
@@ -264,7 +278,7 @@ export async function forwardRequest(req, res, account, terminalId, pool, triedI
         tapper.resume(); // drain
       }
     } catch { /* not JSON */ }
-    res.end(body);
+    res.end(resBody);
   }
 }
 
@@ -275,11 +289,3 @@ function addOAuthBeta(existing) {
   return `${existing},${beta}`;
 }
 
-function detectModel(req) {
-  try {
-    const body = JSON.parse(req.rawBody?.toString() ?? '{}');
-    return body.model ?? 'unknown';
-  } catch {
-    return 'unknown';
-  }
-}

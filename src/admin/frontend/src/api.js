@@ -204,6 +204,19 @@ export async function updateAggregatedProbes(id, probes) {
   })
 }
 
+export async function updateAggregatedPlan(id, plan) {
+  if (USE_MOCK) {
+    await delay()
+    const acc = _accounts.find(a => a.id === id)
+    if (acc) acc.plan = plan
+    return JSON.parse(JSON.stringify(acc))
+  }
+  return apiJson(`/api/accounts/${id}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ plan }),
+  })
+}
+
 export async function listRelayModels(id) {
   if (USE_MOCK) {
     await delay(300)
@@ -249,13 +262,14 @@ export async function addRelayAccount({ nickname, baseUrl, apiKey, modelMap }) {
   })
 }
 
-export async function addAggregatedAccount({ nickname, providers, routing }) {
+export async function addAggregatedAccount({ nickname, providers, routing, plan }) {
   if (USE_MOCK) {
     await delay(400)
     const newAcc = {
       id: 'acc_agg' + Date.now(),
       type: 'aggregated',
       nickname,
+      plan: plan ?? 'max',
       status: 'idle',
       hasCredentials: true,
       addedAt: Date.now(),
@@ -272,7 +286,7 @@ export async function addAggregatedAccount({ nickname, providers, routing }) {
   }
   return apiJson('/api/accounts/aggregated', {
     method: 'POST',
-    body: JSON.stringify({ nickname, providers, routing }),
+    body: JSON.stringify({ nickname, providers, routing, plan }),
   })
 }
 

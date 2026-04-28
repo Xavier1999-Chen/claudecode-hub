@@ -92,9 +92,11 @@ export class AccountPool {
     const oauth = eligible.filter(a => !isRelay(a));
     const warm = oauth.filter(a => !this.#isCooling(a));
     if (warm.length) return this.#leastUtilized(warm);
-    const relays = eligible.filter(isRelay);
+    // relay/aggregated 也要过滤 cooling —— 聚合账号的虚拟限额到顶时（admin 设的
+    // 策略闸门），上游虽能转发但用户希望被识别为不可用，此时不应当兜底到它上。
+    const relays = eligible.filter(a => isRelay(a) && !this.#isCooling(a));
     if (relays.length) return this.#oldestRelay(relays);
-    const cooling = oauth.filter(a => this.#isCooling(a));
+    const cooling = eligible.filter(a => this.#isCooling(a));
     if (cooling.length) return this.#soonestReset(cooling);
     return null;
   }
@@ -195,6 +197,13 @@ export class AccountPool {
     if (!acc) throw new Error('503: account not found');
     const cb = this.#ensureCB(accountId);
     if (!cb.canRequest()) throw new Error('503: account circuit breaker open');
+    // 账号不可用（exhausted / cooling 含聚合虚拟限额）→ 不让 manual pin
+    // 把请求送到必然失败的账号上；先尝试 fallback 到温账号，找不到再 503。
+    if (acc.status === 'exhausted' || this.#isCooling(acc)) {
+      const alt = this.selectFallback(new Set([accountId]));
+      if (!alt) throw new Error('503: pinned account unavailable and no warm alternative');
+      return alt;
+    }
     return acc;
   }
 
@@ -320,9 +329,14 @@ export class AccountPool {
         for (const freshAcc of fresh) {
           const mem = this.#accounts.find(a => a.id === freshAcc.id);
           if (mem) {
-            // Preserve in-memory runtime state (fresher than disk)
-            const preservedRateLimit = mem.rateLimit;
-            const preservedCooldown = mem.cooldownUntil;
+            // OAuth: in-memory rateLimit/cooldown 来自 Anthropic 响应头，比磁盘新；
+            //   admin 探测虽偶尔更新磁盘，但仍可能落后于实时响应头。
+            // Aggregated/Relay: rateLimit 是 admin 端虚拟计算/探测的产物，proxy
+            //   自己从来不更新它（不接收上游限额头）。此时磁盘永远是"权威源"，
+            //   保留内存反而会丢弃 admin 的最新计算（如 5h 边界过后的归零）。
+            const isRelayLike = mem.type === 'relay' || mem.type === 'aggregated';
+            const preservedRateLimit = isRelayLike ? null : mem.rateLimit;
+            const preservedCooldown = isRelayLike ? null : mem.cooldownUntil;
             const preservedHealth = mem.health;
             const preservedProviderHealths = mem.type === 'aggregated' && Array.isArray(mem.providers)
               ? mem.providers.map(p => p.health)
@@ -331,9 +345,9 @@ export class AccountPool {
             // Full replace from disk
             Object.assign(mem, freshAcc);
 
-            // Restore preserved state
-            mem.rateLimit = preservedRateLimit;
-            mem.cooldownUntil = preservedCooldown;
+            // Restore preserved state — OAuth only
+            if (preservedRateLimit !== null) mem.rateLimit = preservedRateLimit;
+            if (preservedCooldown !== null) mem.cooldownUntil = preservedCooldown;
             mem.health = preservedHealth;
             if (Array.isArray(mem.providers) && preservedProviderHealths.length) {
               for (let i = 0; i < Math.min(mem.providers.length, preservedProviderHealths.length); i++) {

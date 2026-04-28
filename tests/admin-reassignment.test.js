@@ -141,3 +141,19 @@ test('reassignCoolingTerminals: no-op when no affected terminals', async () => {
   await reassignCoolingTerminals('acc_cool', accounts, ['auto'], store);
   assert.equal(store.state.terminals[0].accountId, before);
 });
+
+test('reassignCoolingTerminals: modes=null moves manual terminals too', async () => {
+  // Per user requirement: 账号不可用时所有终端都要逃逸，不分 mode。
+  // sync-usage / probeAllRelays 路径都用 null 调用，必须把 manual 也迁。
+  const accounts = [
+    makeAccount('acc_cool', { utilization: 1.0 }),
+    makeAccount('acc_warm', { utilization: 0.1 }),
+  ];
+  const store = makeStore([
+    makeTerminal('t_manual', 'manual', 'acc_cool'),
+    makeTerminal('t_auto',   'auto',   'acc_cool'),
+  ]);
+  await reassignCoolingTerminals('acc_cool', accounts, null, store);
+  assert.equal(store.state.terminals.find(t => t.id === 't_manual').accountId, 'acc_warm');
+  assert.equal(store.state.terminals.find(t => t.id === 't_auto').accountId,   'acc_warm');
+});

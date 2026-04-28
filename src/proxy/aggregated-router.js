@@ -20,12 +20,12 @@ export function hasImageContent(body) {
 
 export function resolveAggregatedProvider(body, account) {
   const hasImage = hasImageContent(body);
+  const model = body.model ?? '';
   let route;
 
   if (hasImage) {
     route = account.routing?.image ?? account.routing?.opus;
   } else {
-    const model = body.model ?? '';
     if (model.startsWith('claude-opus')) route = account.routing?.opus;
     else if (model.startsWith('claude-sonnet')) route = account.routing?.sonnet;
     else if (model.startsWith('claude-haiku')) route = account.routing?.haiku;
@@ -36,10 +36,17 @@ export function resolveAggregatedProvider(body, account) {
   const provider = account.providers?.[route.providerIndex];
   if (!provider) return null;
 
+  const resolvedTier = hasImage ? 'image'
+    : model.startsWith('claude-opus') ? 'opus'
+    : model.startsWith('claude-sonnet') ? 'sonnet'
+    : model.startsWith('claude-haiku') ? 'haiku'
+    : 'sonnet';
+
   return {
     baseUrl: provider.baseUrl,
     apiKey: provider.credentials?.apiKey,
     targetModel: route.model,
+    resolvedTier,
   };
 }
 

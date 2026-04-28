@@ -4,6 +4,7 @@ import { addAggregatedAccount } from '../api.js'
 export default function AggregatedModal({ onClose, onSuccess }) {
   const [step, setStep] = useState(1)
   const [nickname, setNickname] = useState('')
+  const [plan, setPlan] = useState('max')
   const [providers, setProviders] = useState([{ name: '', baseUrl: '', apiKey: '', probeModel: '' }])
   const [routing, setRouting] = useState({
     opus: { providerIndex: 0, model: '' },
@@ -73,7 +74,7 @@ export default function AggregatedModal({ onClose, onSuccess }) {
           cleanRouting[key] = { providerIndex: r.providerIndex, model: r.model.trim() }
         }
       }
-      await addAggregatedAccount({ nickname: nickname.trim(), providers: cleanProviders, routing: cleanRouting })
+      await addAggregatedAccount({ nickname: nickname.trim(), providers: cleanProviders, routing: cleanRouting, plan })
       onSuccess()
     } catch (e) {
       setError(e.message || '创建失败')
@@ -97,6 +98,14 @@ export default function AggregatedModal({ onClose, onSuccess }) {
                 value={nickname}
                 onChange={e => setNickname(e.target.value)}
               />
+            </div>
+            <div className="form-row">
+              <label className="form-label">等级</label>
+              <select className="form-input" value={plan} onChange={e => setPlan(e.target.value)}>
+                <option value="pro">PRO</option>
+                <option value="max">MAX</option>
+                <option value="max_20x">MAX 20x</option>
+              </select>
             </div>
             <div className="modal-actions">
               <button className="btn btn-ghost" onClick={onClose}>取消</button>
