@@ -115,8 +115,7 @@ function Heading() {
         这是给谁的
       </h2>
       <p className="mt-4 max-w-2xl text-base leading-relaxed text-brand-ink/60">
-        四档使用强度对应四种典型用户。继续向下滚动 —— 滚轮直接控制仪表盘指针，
-        当前档走满后会自动切换到下一档。
+        继续向下滚动鼠标，模拟实时使用强度仪表盘。
       </p>
     </div>
   )
