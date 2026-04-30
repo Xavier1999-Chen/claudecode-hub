@@ -1,10 +1,8 @@
 'use client'
 
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 import {
   type Tier,
-  TIER_COLORS,
-  TIER_THRESHOLDS,
   needleAngle,
   tierFillColor,
   tierProgress,
@@ -18,55 +16,47 @@ const ARC_PATH = `M 20 110 A ${ARC_RADIUS} ${ARC_RADIUS} 0 0 1 200 110`
 interface IntensityGaugeProps {
   /**
    * 'live' — render based on actual USD value (admin behaviour).
-   * 'demo' — lock to a tier and animate ratio 0→1→0 in a loop (marketing behaviour).
+   * 'demo' — single-sweep animation: ratio 0→1 within the locked tier on mount,
+   *          then hold at 1. Re-mount (via React key) to replay.
    */
   mode: 'live' | 'demo'
   usd?: number
   lockedTier?: Tier
-  /**
-   * Optional shared time source for synchronizing multiple demo gauges
-   * onto a single requestAnimationFrame loop. Pass `Date.now()` from a
-   * parent's RAF tick. If omitted, each gauge runs its own RAF (fine for
-   * 1-2 gauges; for 4+ gauges prefer parent-driven shared tick).
-   */
-  sharedTime?: number
+}
+
+/**
+ * Detect prefers-reduced-motion at module load.
+ * Returns true on the server (no window) so SSR-rendered HTML is the
+ * "static end-state" form; the client effect later flips to animated
+ * for users without reduced-motion preference.
+ */
+function prefersReducedMotion(): boolean {
+  if (typeof window === 'undefined') return true
+  return window.matchMedia('(prefers-reduced-motion: reduce)').matches
 }
 
 export default function IntensityGauge({
   mode,
   usd,
   lockedTier,
-  sharedTime,
 }: IntensityGaugeProps) {
-  // Live mode: ratio derived from usd
-  // Demo mode: ratio derived from time-based oscillation
-  const [demoRatio, setDemoRatio] = useState(0)
-  const rafRef = useRef<number | null>(null)
-  const startRef = useRef<number | null>(null)
+  // Demo mode: phase 0 → 1 once, driven by CSS transition (no RAF loop).
+  // Initial phase is 0 (start of arc); after mount we set 1, CSS interpolates.
+  // SSR + reduced-motion both render at phase=1 directly (no animation flash).
+  const [phase, setPhase] = useState(() =>
+    mode === 'demo' && !prefersReducedMotion() ? 0 : 1
+  )
 
   useEffect(() => {
-    if (mode !== 'demo' || sharedTime !== undefined) return
-    // Self-driven RAF when no shared tick is provided.
-    const tick = (now: number) => {
-      if (startRef.current === null) startRef.current = now
-      const elapsed = (now - startRef.current) / 1000
-      // ~5 second period for a full 0→1→0 swing
-      const phase = (Math.sin(elapsed * (Math.PI / 2.5)) + 1) / 2
-      setDemoRatio(phase)
-      rafRef.current = requestAnimationFrame(tick)
+    if (mode !== 'demo') return
+    if (prefersReducedMotion()) {
+      setPhase(1)
+      return
     }
-    rafRef.current = requestAnimationFrame(tick)
-    return () => {
-      if (rafRef.current !== null) cancelAnimationFrame(rafRef.current)
-    }
-  }, [mode, sharedTime])
-
-  useEffect(() => {
-    if (mode !== 'demo' || sharedTime === undefined) return
-    // Parent-driven shared tick: derive phase from sharedTime ms.
-    const phase = (Math.sin((sharedTime / 1000) * (Math.PI / 2.5)) + 1) / 2
-    setDemoRatio(phase)
-  }, [mode, sharedTime])
+    // Defer one frame so the initial 0 paint commits before transitioning to 1.
+    const raf = requestAnimationFrame(() => setPhase(1))
+    return () => cancelAnimationFrame(raf)
+  }, [mode])
 
   let tier: Tier
   let ratio: number
@@ -76,14 +66,16 @@ export default function IntensityGauge({
     ratio = liveProgress.ratio
   } else {
     tier = lockedTier ?? 'light'
-    ratio = demoRatio
+    ratio = phase
   }
 
   const fill = tierFillColor(tier)
   const fillOffset = ARC_LEN * (1 - ratio)
-  // Convert ratio→angle, then map to needle's coordinate system
-  // (-90° = pointing left at start of arc, +90° = pointing right at end).
   const needleDeg = ratio * 180 - 90
+
+  // Animation tuned for "noticeable arrival, then settled":
+  // ~1.4s ease-out so user sees the sweep happen but it doesn't drag.
+  const transition = mode === 'demo' ? 'all 1400ms cubic-bezier(0.16, 1, 0.3, 1)' : 'none'
 
   return (
     <svg
@@ -109,7 +101,7 @@ export default function IntensityGauge({
         strokeLinecap="round"
         strokeDasharray={ARC_LEN}
         strokeDashoffset={fillOffset}
-        style={{ transition: 'stroke-dashoffset 0.1s linear' }}
+        style={{ transition }}
       />
       {/* Needle */}
       <line
@@ -121,7 +113,7 @@ export default function IntensityGauge({
         strokeWidth="3"
         strokeLinecap="round"
         transform={`rotate(${needleDeg} 110 110)`}
-        style={{ transition: 'transform 0.1s linear' }}
+        style={{ transition }}
       />
       {/* Hub */}
       <circle cx="110" cy="110" r="6" fill="var(--color-brand-ink)" />
