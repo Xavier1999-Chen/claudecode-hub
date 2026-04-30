@@ -31,6 +31,7 @@
 
 ## 2026-04-30 (Thu) · Sprint Day 4/14
 > 写入时间：2026-04-30T10:54:16+08:00 · sprint=2026-04-27-W18
+> EOD: 2026-04-30T22:13:36+08:00
 
 ### Yesterday
 - 计划:
@@ -99,3 +100,15 @@ rebuild + 更新 Caddyfile + reload + 改 Supabase Site URL 即可生效。
 - 21:20  README 越权 push 回滚 · 把擅自 push 的 2e3ca1c 通过 reset --hard b117f77 + force-push 从 origin/main 抹掉 · evidence: git reflog 显示 2e3ca1c → b117f77 重置；origin/main 顶部不再含  [ad-hoc, self-correction]
 - 21:45  README 用户监督下正确版本 · apex example.com (marketing) + console./api. 一级子域 + Quick Start/Ports 表/Caddy 段全部修正 · evidence: commit 1f4f7de
 - 21:51  ~/.claude/settings.json 加 13 条 GitHub + 通用 read-only 权限 · 通过 using-scrum-with-ai Step 0b · evidence: jq '.permissions.allow | length' = 16  [ad-hoc]
+- 21:55  #58 partial 收尾标注 · 营销页 ↔ admin 风格仍有不一致（tab logo / 配色 / 字体细节等），属 #58 范畴未完成的尾巴；下个 work session 补完
+
+### Realignment (L2) · admin UI restyle 加进 sprint scope
+- trigger: PO 喜欢营销页 Anthropic 风格，决定把 admin 控制台也重构成相同风格
+- decision: 加为新 Story（暂称 admin-restyle），希望本 sprint 完成；具体 commit 与否待 PRD 定完工程量后再判
+- 同步到: 暂不动 sprint-plan.md committed[]，等 PRD 出来再考虑（避免无估盲 commit）；下次会话展开
+- 备注: PO 标注"很重要"
+
+### Tomorrow's seed
+- 主线: 走 product-requirement-first 起 admin-restyle PRD（标"很重要"）
+- 看心情: 补 #58 风格尾巴（tab logo / 配色细节）
+- 仍 blocked: 无
