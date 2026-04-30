@@ -58,10 +58,12 @@
 ### Blockers
 - 无
 
-### Realignment (L1)
+### Realignment (L1 → L2)
 - trigger: 实施 #58 时验证「已登录 → Nav 切控制台」行为，发现 marketing (@supabase/ssr cookies) 与 admin (@supabase/supabase-js localStorage) session 永不交集，加上本地端口隔离，永远识别为 anonymous
-- decision: 不在 #58 内做架构修复（工程量大、超出营销页范围）；新建 issue #59 跟踪"统一 session 存储"，列入 backlog P1，部署生产前必须解决
-- 同步到: PRD §5.1 加已知限制段；PRD §6.8 关键 AC 标注"依赖 #59 端到端验证"；marketing-site epic.md Open Questions
+- 初版决定（已撤回）: 新建 issue #59 跟踪，列 backlog P1，部署前修复
+- 用户反馈: PRD §5.1 / §6.8 已经把「登录态切换」标 [x] 为本 Story 的硬需求，不能用"延后"绕过 → PRD 与代码必须一致
+- 最终决定: 把 #59 工作收进 #58 —— admin frontend 切换到 `@supabase/ssr` 的 createBrowserClient（cookie 存储），与 marketing 的 createServerClient 共享 cookie。本地 cookies 不分端口，:3182 / :3183 同 host 共用；生产配 cookie domain 到父域即可子域共享
+- 同步到: 本 Story 的 decisions.md（L2 capture）；PRD §5.1 已知限制段移除；PRD §6.8 删除「依赖 #59」标注；backlog.md / epic.md 同步移除 #59；issue #59 在本 PR merge 时一并 close
 
 ### Sprint Goal Progress
 - 状态: on-track

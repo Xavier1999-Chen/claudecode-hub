@@ -39,4 +39,3 @@ ended_at_utc: ""
 
 - 营销页是否要独立部署在子域名（如 `www.` / 主域）vs 与 admin 面板同一应用？
 - 需不需要后续接入分析工具（GA / 自建埋点）？
-- **marketing ↔ admin 登录态共享**（issue #59）—— 当前架构 admin 用 localStorage、marketing 用 cookies，session 永不交集；部署生产前必须解决
