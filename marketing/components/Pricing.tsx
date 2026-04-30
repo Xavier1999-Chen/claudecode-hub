@@ -25,8 +25,7 @@ export default function Pricing() {
           定价
         </h2>
         <p className="mt-4 max-w-2xl text-base leading-relaxed text-brand-ink/60">
-          按 30 天为一个周期统一结算 —— 周期内的实测使用强度落在哪一档，
-          就按哪一档收。无预付、无锁定。
+          按 30 天为一个周期统一结算 —— 周期内的实测使用强度落在哪一档，就按哪一档收。
         </p>
 
         <div className="mt-16 grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-4">

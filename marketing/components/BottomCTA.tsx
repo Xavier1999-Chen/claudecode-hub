@@ -24,9 +24,6 @@ export default function BottomCTA({ isAuthed }: BottomCTAProps) {
           <br />
           按你的真实强度结算。
         </h2>
-        <p className="mt-6 text-base text-brand-cream/70 md:text-lg">
-          内测期注册需 admin 审批，约 1-2 个工作日。
-        </p>
 
         <div className="mt-12">
           <a
