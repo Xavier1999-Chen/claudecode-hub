@@ -9,7 +9,7 @@ A self-hosted proxy that lets multiple Claude Code terminals share a pool of Ant
 ```bash
 git clone https://github.com/Xavier1999-Chen/claudecode-hub.git
 cd claudecode-hub
-bash install.sh          # interactive — prompts for Supabase URL + anon key, installs deps, builds frontend
+bash install.sh          # interactive — prompts for Supabase URL + anon key, installs deps, builds admin + marketing frontends
 ```
 
 Follow the manual steps `install.sh` prints at the end (Supabase migration + auth URLs + first-admin promotion). Then pick a startup mode:
@@ -31,12 +31,15 @@ claude
 
 **From another machine on the same LAN**, replace `127.0.0.1` with the server's LAN IP (check with `ip addr` or `hostname -I`). For production or multi-user deployments, see the [Advanced — HTTPS with a custom domain](#advanced--https-with-a-custom-domain-caddy) section below.
 
+The marketing landing page is also live at `http://127.0.0.1:3183` (mostly relevant for production deployments under your own domain).
+
 ## Ports
 
-| Service | Default port | Override |
-|---------|-------------|---------|
-| Proxy   | 3180        | `PROXY_PORT` env var |
-| Admin   | 3182        | `ADMIN_PORT` env var |
+| Service   | Default port | Override |
+|-----------|--------------|---------|
+| Proxy     | 3180         | `PROXY_PORT` env var |
+| Admin     | 3182         | `ADMIN_PORT` env var |
+| Marketing | 3183         | (hardcoded in `marketing/package.json` scripts) |
 
 ## Running in the background
 
@@ -53,12 +56,14 @@ tmux ls                                  # check whether it's running
 
 By default the services serve HTTP. This works but browsers disable several features over plain HTTP (most notably `navigator.clipboard`, so the "复制" buttons in the admin UI silently fail — see FAQ below). HTTPS also protects JWTs and API keys in transit.
 
-The simplest path is [Caddy](https://caddyserver.com/) with automatic Let's Encrypt certificates. This assumes you have a domain pointing at the server (e.g. `hub.example.com`).
+The simplest path is [Caddy](https://caddyserver.com/) with automatic Let's Encrypt certificates. This assumes you have a domain pointing at the server (e.g. `example.com`).
 
-**1. DNS** — point three subdomains at your server's public IP:
-- `hub.example.com`         → marketing site (public landing page)
-- `console.example.com`     → admin dashboard (login required)
-- `api.hub.example.com`     → Claude Code proxy
+The recommended layout puts the marketing site at the apex and admin/proxy on subdomains, so a single cookie `Domain=.example.com` lets admin and marketing share the same Supabase session:
+
+**1. DNS** — point the apex and two subdomains at your server's public IP (use A records — apex `CNAME` is non-standard on some DNS providers):
+- `example.com`         → marketing site (public landing page, port `3183`)
+- `console.example.com` → admin dashboard (login required, port `3182`)
+- `api.example.com`     → Claude Code proxy (port `3180`)
 
 **2. Firewall / security group** — open `80` and `443` (80 is needed for Let's Encrypt's HTTP-01 challenge). You can close public access to `3180`, `3182`, and `3183` now that Caddy fronts them.
 
@@ -76,7 +81,7 @@ sudo apt update && sudo apt install -y caddy
 **4. Write `/etc/caddy/Caddyfile`** (replace with your domain):
 
 ```
-hub.example.com {
+example.com {
   reverse_proxy localhost:3183
 }
 
@@ -84,7 +89,7 @@ console.example.com {
   reverse_proxy localhost:3182
 }
 
-api.hub.example.com {
+api.example.com {
   reverse_proxy localhost:3180
 }
 ```
@@ -92,13 +97,13 @@ api.hub.example.com {
 Reload: `sudo systemctl reload caddy`. Caddy issues certs on first request (~30s) and auto-renews them.
 
 **5. Configure cookie domain for cross-subdomain session sharing** —
-admin (`console.`) and marketing (`hub.`) are different subdomains, so by default
-Supabase auth cookies are host-only and the marketing page can't tell whether
-the visitor is signed in. Set the cookie `Domain` attribute to the parent domain
-in both env files, then rebuild:
+admin and marketing live on different (sub)domains, so by default Supabase
+auth cookies are host-only and the marketing page can't tell whether the
+visitor is signed in. Set the cookie `Domain` attribute to the parent
+domain (`.example.com`) in both env files, then rebuild:
 
 ```bash
-# src/admin/frontend/.env.local — append:
+# src/admin/frontend/.env.local — append (or edit if present):
 VITE_COOKIE_DOMAIN=.example.com
 
 # marketing/.env.local — set:
@@ -116,12 +121,12 @@ bash start-bg.sh
 
 **6. Update Supabase** — Authentication → URL Configuration:
 - **Site URL**: `https://console.example.com`
-- **Redirect URLs**: add `https://console.example.com/**` and `https://hub.example.com/**`
+- **Redirect URLs**: add `https://console.example.com/**` and `https://example.com/**`
 
 **7. Update client config** — Claude Code users now set:
 
 ```bash
-export ANTHROPIC_BASE_URL=https://api.hub.example.com
+export ANTHROPIC_BASE_URL=https://api.example.com
 ```
 
 Note: no port — Caddy serves via the standard 443.
