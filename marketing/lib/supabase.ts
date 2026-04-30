@@ -19,6 +19,11 @@ interface CookieToSet {
  *   NEXT_PUBLIC_SUPABASE_URL
  *   NEXT_PUBLIC_SUPABASE_ANON_KEY
  *
+ * Optional env var (production multi-subdomain deployment):
+ *   NEXT_PUBLIC_COOKIE_DOMAIN — set to e.g. ".tertax.cn" so cookies are
+ *     readable across subdomains (admin on console.tertax.cn writes,
+ *     marketing on hub.tertax.cn reads). Leave unset for local dev.
+ *
  * If env vars are missing (e.g. local dev without Supabase configured),
  * we return null instead of throwing — the page still renders with
  * isAuthed=false, which is the correct anonymous-visitor experience.
@@ -26,11 +31,13 @@ interface CookieToSet {
 async function createMarketingSupabaseClient() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL
   const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+  const cookieDomain = process.env.NEXT_PUBLIC_COOKIE_DOMAIN
   if (!url || !anonKey) return null
 
   const cookieStore = await cookies()
 
   return createServerClient(url, anonKey, {
+    cookieOptions: cookieDomain ? { domain: cookieDomain } : undefined,
     cookies: {
       getAll() {
         return cookieStore.getAll()

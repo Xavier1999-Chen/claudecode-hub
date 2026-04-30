@@ -55,11 +55,12 @@ By default the services serve HTTP. This works but browsers disable several feat
 
 The simplest path is [Caddy](https://caddyserver.com/) with automatic Let's Encrypt certificates. This assumes you have a domain pointing at the server (e.g. `hub.example.com`).
 
-**1. DNS** — point two subdomains at your server's public IP:
-- `hub.example.com`     → admin dashboard
-- `api.hub.example.com` → Claude Code proxy
+**1. DNS** — point three subdomains at your server's public IP:
+- `hub.example.com`         → marketing site (public landing page)
+- `console.example.com`     → admin dashboard (login required)
+- `api.hub.example.com`     → Claude Code proxy
 
-**2. Firewall / security group** — open `80` and `443` (80 is needed for Let's Encrypt's HTTP-01 challenge). You can close public access to `3180` and `3182` now that Caddy fronts them.
+**2. Firewall / security group** — open `80` and `443` (80 is needed for Let's Encrypt's HTTP-01 challenge). You can close public access to `3180`, `3182`, and `3183` now that Caddy fronts them.
 
 **3. Install Caddy** (Debian/Ubuntu):
 
@@ -76,6 +77,10 @@ sudo apt update && sudo apt install -y caddy
 
 ```
 hub.example.com {
+  reverse_proxy localhost:3183
+}
+
+console.example.com {
   reverse_proxy localhost:3182
 }
 
@@ -86,11 +91,34 @@ api.hub.example.com {
 
 Reload: `sudo systemctl reload caddy`. Caddy issues certs on first request (~30s) and auto-renews them.
 
-**5. Update Supabase** — Authentication → URL Configuration:
-- **Site URL**: `https://hub.example.com`
-- **Redirect URLs**: add `https://hub.example.com/**`
+**5. Configure cookie domain for cross-subdomain session sharing** —
+admin (`console.`) and marketing (`hub.`) are different subdomains, so by default
+Supabase auth cookies are host-only and the marketing page can't tell whether
+the visitor is signed in. Set the cookie `Domain` attribute to the parent domain
+in both env files, then rebuild:
 
-**6. Update client config** — Claude Code users now set:
+```bash
+# src/admin/frontend/.env.local — append:
+VITE_COOKIE_DOMAIN=.example.com
+
+# marketing/.env.local — set:
+NEXT_PUBLIC_ADMIN_URL=https://console.example.com
+NEXT_PUBLIC_COOKIE_DOMAIN=.example.com
+
+# rebuild both (NEXT_PUBLIC_* is baked in at build time)
+cd src/admin/frontend && npm run build && cd ../../..
+cd marketing && npm run build && cd ..
+
+# restart services
+tmux kill-session -t claudecode-hub 2>/dev/null
+bash start-bg.sh
+```
+
+**6. Update Supabase** — Authentication → URL Configuration:
+- **Site URL**: `https://console.example.com`
+- **Redirect URLs**: add `https://console.example.com/**` and `https://hub.example.com/**`
+
+**7. Update client config** — Claude Code users now set:
 
 ```bash
 export ANTHROPIC_BASE_URL=https://api.hub.example.com

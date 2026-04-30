@@ -124,6 +124,9 @@ if [ -f .env ] && grep -q '^SUPABASE_URL=' .env && grep -q '^SUPABASE_ANON_KEY='
 NEXT_PUBLIC_SUPABASE_URL=$SB_URL
 NEXT_PUBLIC_SUPABASE_ANON_KEY=$SB_KEY
 NEXT_PUBLIC_ADMIN_URL=http://localhost:3182
+# Cross-subdomain cookie sharing in production (e.g. ".example.com").
+# Leave empty for local dev — host-only cookies work across localhost ports.
+NEXT_PUBLIC_COOKIE_DOMAIN=
 EOF
     echo "marketing/.env.local created from existing .env (upgrade path)."
   fi
@@ -167,6 +170,9 @@ EOF
 VITE_MOCK=false
 VITE_SUPABASE_URL=$SB_URL
 VITE_SUPABASE_ANON_KEY=$SB_KEY
+# Cross-subdomain cookie sharing in production (e.g. ".example.com").
+# Leave empty for local dev — host-only cookies work across localhost ports.
+VITE_COOKIE_DOMAIN=
 EOF
   # Marketing site (Next.js) reads NEXT_PUBLIC_ vars at build time.
   # ADMIN_URL points to the admin app for cross-app login/console links;
@@ -176,6 +182,9 @@ EOF
 NEXT_PUBLIC_SUPABASE_URL=$SB_URL
 NEXT_PUBLIC_SUPABASE_ANON_KEY=$SB_KEY
 NEXT_PUBLIC_ADMIN_URL=http://localhost:3182
+# Cross-subdomain cookie sharing in production (e.g. ".example.com").
+# Leave empty for local dev — host-only cookies work across localhost ports.
+NEXT_PUBLIC_COOKIE_DOMAIN=
 EOF
   echo ".env, src/admin/frontend/.env.local, and marketing/.env.local written."
 fi
