@@ -8,10 +8,17 @@ interface HeroProps {
  * Hero region: oversized serif heading + subtitle + dual CTA.
  * Anthropic-inspired: cream background, big breathing room, no images.
  *
- * - Primary CTA "免费注册" hidden when isAuthed (logged-in users skip the funnel).
- * - Secondary CTA "看看怎么用" anchor jumps to #personas (always shown).
+ * Primary CTA toggles by auth state:
+ *   - 未登录：「免费注册」→ /register（funnel 入口）
+ *   - 已登录：「开始使用」→ admin console（直接进产品）
+ *
+ * Hero 始终保留主 CTA，避免登录态下整片留白；导航 / 底部 CTA 仍按 PRD
+ * 隐藏注册路径。次级 CTA「看看怎么用」无关登录态，永远展示。
  */
 export default function Hero({ isAuthed }: HeroProps) {
+  const primaryHref = isAuthed ? adminLinks.console : adminLinks.register
+  const primaryLabel = isAuthed ? '开始使用' : '免费注册'
+
   return (
     <section className="px-8 pt-24 pb-32 md:pt-32 md:pb-40">
       <div className="mx-auto max-w-5xl">
@@ -27,15 +34,13 @@ export default function Hero({ isAuthed }: HeroProps) {
         </p>
 
         <div className="mt-14 flex flex-wrap items-center gap-4">
-          {!isAuthed && (
-            <a
-              href={adminLinks.register}
-              className="rounded-full bg-brand-orange px-7 py-3.5 text-base font-medium text-white shadow-sm transition-all hover:bg-brand-orange-deep hover:shadow-md"
-              aria-label="免费注册"
-            >
-              免费注册
-            </a>
-          )}
+          <a
+            href={primaryHref}
+            className="rounded-full bg-brand-orange px-7 py-3.5 text-base font-medium text-white shadow-sm transition-all hover:bg-brand-orange-deep hover:shadow-md"
+            aria-label={primaryLabel}
+          >
+            {primaryLabel}
+          </a>
           <a
             href="#personas"
             className="rounded-full border border-brand-ink/15 bg-transparent px-7 py-3.5 text-base font-medium text-brand-ink transition-colors hover:border-brand-ink/40"
