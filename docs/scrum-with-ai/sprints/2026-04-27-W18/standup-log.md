@@ -68,3 +68,18 @@
 ### Sprint Goal Progress
 - 状态: on-track
 - 理由（用户原话）: a
+
+### Update 20:16:49 · 域名拓扑切换准备
+PR #60 merge 后用户决定把生产域名拓扑从单子域 `hub.tertax.cn` (admin) 改为：
+- `hub.tertax.cn` → marketing
+- `console.tertax.cn` → admin
+- `api.hub.tertax.cn` → proxy（不变）
+
+为支持跨子域 session 共享：
+- admin frontend `supabase.js` + marketing `lib/supabase.ts` 加 `cookieOptions.domain`
+  支持，由 `VITE_COOKIE_DOMAIN` / `NEXT_PUBLIC_COOKIE_DOMAIN` env 驱动
+- install.sh 在写 .env.local 时加 COOKIE_DOMAIN 占位行（默认空）
+- README Caddy 段更新为三子域示例 + cookie domain 配置步骤
+
+代码改动 commit `97defa5` 已 push 到 main。等用户在 ECS 上 pull + 改 env +
+rebuild + 更新 Caddyfile + reload + 改 Supabase Site URL 即可生效。
