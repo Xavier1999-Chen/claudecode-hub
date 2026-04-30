@@ -220,7 +220,7 @@ function ProgressIndicator({ scrollYProgress, total }: ProgressIndicatorProps) {
         ))}
       </div>
       <p className="mt-6 text-center text-xs text-brand-ink/40">
-        {activeIndex + 1} / {total} · 滚轮控制指针 · 走满自动切下一档
+        第 {activeIndex + 1} 档 · 共 {total} 档
       </p>
     </div>
   )
