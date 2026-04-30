@@ -114,6 +114,19 @@ echo "Claude Code CLI $(claude --version 2>/dev/null | head -1 || echo 'detected
 # Frontend requires VITE_SUPABASE_URL + VITE_SUPABASE_ANON_KEY for auth.
 if [ -f .env ] && grep -q '^SUPABASE_URL=' .env && grep -q '^SUPABASE_ANON_KEY=' .env; then
   echo "Supabase config found in .env — reusing."
+  # Backfill marketing/.env.local for upgrades from older installs that
+  # predate the marketing site (issue: re-running install.sh skipped the
+  # interactive setup branch and never created marketing's env file).
+  if [ ! -f marketing/.env.local ]; then
+    SB_URL=$(grep '^SUPABASE_URL=' .env | cut -d= -f2-)
+    SB_KEY=$(grep '^SUPABASE_ANON_KEY=' .env | cut -d= -f2-)
+    cat > marketing/.env.local <<EOF
+NEXT_PUBLIC_SUPABASE_URL=$SB_URL
+NEXT_PUBLIC_SUPABASE_ANON_KEY=$SB_KEY
+NEXT_PUBLIC_ADMIN_URL=http://localhost:3182
+EOF
+    echo "marketing/.env.local created from existing .env (upgrade path)."
+  fi
 else
   cat <<'INFO'
 
