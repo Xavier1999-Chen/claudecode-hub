@@ -31,7 +31,7 @@ export default function BottomCTA({ isAuthed }: BottomCTAProps) {
             className="inline-block rounded-full bg-brand-orange px-9 py-4 text-base font-medium text-white shadow-sm transition-all hover:bg-brand-orange-soft hover:shadow-md"
             aria-label="免费注册"
           >
-            免费注册 →
+            免费注册
           </a>
         </div>
       </div>

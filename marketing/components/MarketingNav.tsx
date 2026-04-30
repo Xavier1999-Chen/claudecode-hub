@@ -64,7 +64,7 @@ export default function MarketingNav({ isAuthed }: MarketingNavProps) {
               className="text-sm font-medium text-brand-ink transition-opacity hover:opacity-70"
               aria-label="登录"
             >
-              登录 →
+              登录
             </a>
           )}
         </div>

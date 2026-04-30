@@ -41,7 +41,7 @@ export default function Hero({ isAuthed }: HeroProps) {
             className="rounded-full border border-brand-ink/15 bg-transparent px-7 py-3.5 text-base font-medium text-brand-ink transition-colors hover:border-brand-ink/40"
             aria-label="看看怎么用"
           >
-            看看怎么用 →
+            看看怎么用
           </a>
         </div>
       </div>
