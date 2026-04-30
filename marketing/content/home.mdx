@@ -1,0 +1,18 @@
+{/*
+营销首页的"内容来源"。
+
+当前 v1：实际渲染走 app/page.tsx（直接 compose 各 section 组件）。
+本文件保留为：未来需要把"页面结构 + 内容"完全交给非工程师编辑时，
+可以把 page.tsx 切换成 import 本文件并渲染。
+
+各 section 组件已注册到 mdx-components.tsx，MDX 内可直接用 <Hero/> 等标签。
+session-aware 组件（Hero / BottomCTA）使用前需要先解决 isAuthed prop 的传递
+（建议方案：把 isAuthed 放进 React Context，由 layout/page 提供）。
+
+留档：v1 没走 pure-MDX 路径，因为 isAuthed 是动态值，pure MDX 静态描述
+传 props 不够顺滑。先维持 page.tsx compose 方案。
+*/}
+
+# 营销首页 · 内容档（未启用）
+
+> v2+ 切换到 pure-MDX 渲染时启用本文件。
