@@ -9,8 +9,8 @@
 - type: Story
 - github: #58
 - depends_on: []
-- status: pending
-- pr: -
+- status: in-review
+- pr: #60
 - merged_at_utc: -
 
 ### Goal
