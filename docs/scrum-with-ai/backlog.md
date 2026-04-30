@@ -11,7 +11,9 @@
 
 ### P1 · 重要
 
-- 暂无
+- [ ] **统一 marketing 与 admin 的 Supabase session 存储** `[story]` `[marketing-site]` `[auth-onboarding]` · #59
+  - 来自 #58 实施过程：admin 用 `@supabase/supabase-js` localStorage，marketing 用 `@supabase/ssr` cookies + 端口隔离 → 永不共享
+  - 部署生产前必须修；不阻塞 #58 merge（首版 marketing 行为按 anonymous always）
 
 ### P2 · 待评估
 

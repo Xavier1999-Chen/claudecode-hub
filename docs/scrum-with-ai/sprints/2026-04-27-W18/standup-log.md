@@ -58,6 +58,11 @@
 ### Blockers
 - 无
 
+### Realignment (L1)
+- trigger: 实施 #58 时验证「已登录 → Nav 切控制台」行为，发现 marketing (@supabase/ssr cookies) 与 admin (@supabase/supabase-js localStorage) session 永不交集，加上本地端口隔离，永远识别为 anonymous
+- decision: 不在 #58 内做架构修复（工程量大、超出营销页范围）；新建 issue #59 跟踪"统一 session 存储"，列入 backlog P1，部署生产前必须解决
+- 同步到: PRD §5.1 加已知限制段；PRD §6.8 关键 AC 标注"依赖 #59 端到端验证"；marketing-site epic.md Open Questions
+
 ### Sprint Goal Progress
 - 状态: on-track
 - 理由（用户原话）: a
