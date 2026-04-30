@@ -87,11 +87,15 @@ cookie 共享父域 = `.hub.tertax.cn`（让 console. / api. / hub. 都能访问
 rebuild + 更新 Caddyfile + reload + 改 Supabase Site URL 即可生效。
 
 ### Actual
-- 10:54  #58 营销首页实施 · 单 PR 23 commits 完成 (PRD/TRD/12 milestones 全过) · evidence: PR #60 merged
-- 10:43  #59 auth session 共享 · admin frontend 切到 @supabase/ssr cookie 存储 · evidence: closed by PR #60
-- 11:36  Supabase env 缺失时优雅降级 · marketing 在没配置时不再 500 · evidence: commit f25af62
-- 12:00+ 营销页迭代打磨 · scrollytelling / gauge endpoint / instant-scroll / 文案 / max-w-7xl 对齐 · evidence: commits c8d97cc → 6526215 (10 commits in PR #60)
-- 19:30  install.sh upgrade 路径修复 · 已有 .env 时也补 marketing/.env.local · evidence: commit 5326685
-- 20:18  跨子域 cookie domain 支持 · admin/marketing supabase clients 加 cookieOptions.domain via env · evidence: commit 97defa5
-- 20:18  README Caddy 段更新为三子域拓扑 · hub. (marketing) + console. (admin) + api.hub. (proxy) · evidence: commit 97defa5
-- 20:18  W18 standup-log 当日 entry 加 Update 子段记录域名切换工作 · evidence: commit b4c3399
+- 09:31  #58 TRD v2 起草 · 推倒 v1（同应用部署）重写为独立 Next.js + MDX + 同仓库 marketing/ 目录 · evidence: trd.md started_at_utc=01:31:40Z
+- 10:43  #58 TRD v2 confirmed + 实施 ticket #58 开 · trd.md 落盘 + tasks.md 单 task 收完（12 内部 milestone checklist）+ GitHub issue #58 创建 · evidence: trd.md confirmed_at_utc=02:43:11Z; gh issue 58 createdAt=02:43:44Z
+- 10:43→19:39  #58 营销首页实施（PR #60 主体，~9h 大头）· marketing/ Next.js 15 + Tailwind 4 + MDX 工程脚手架；IntensityGauge SVG + math 从 admin 移植；7 段 section 组件（Nav/Hero/Footer/Feature/Persona/Pricing/BottomCTA）+ Server Component 整合；@supabase/ssr 跨工程 cookie 统一（顺手 close #59）；install/start/start-bg 脚本接入 marketing 生命周期；PersonaCards scrollytelling 多次迭代（pinned scroll → scrub → endpoint geometry）+ 文案打磨 + max-w-7xl 全 section 对齐 · evidence: PR #60 squashed → commit 34a825d, merged at 19:39
+- 19:40  本地 main 同步 origin/main · squash-merge 后 reset --hard origin/main 抹掉 3 个 dup-content scrum commit (e508544/362a432/59cb407) · evidence: git log 顶部 = 34a825d
+- 19:50  Stale 分支清理 · 14 本地 + 11 远程合并后未清理的 feature 分支批量删 · evidence: git branch 仅剩 main；git branch -r 仅剩 origin/main  [ad-hoc]
+- 20:06  install.sh upgrade 路径修复 · 已有 .env 时也补写 marketing/.env.local（避免 ECS upgrade 时 NEXT_PUBLIC_ 空 → 500）· evidence: commit 5326685
+- 20:17  跨子域 cookie domain 支持（生产部署用）· admin/marketing supabase 客户端加 cookieOptions.domain via VITE/NEXT_PUBLIC_COOKIE_DOMAIN env；install.sh 写 .env.local 时加占位行；README Caddy 段同步更新（后被 21:45 进一步修正）· evidence: commit 97defa5
+- 20:19  W18 standup-log Update 子段记录域名切换准备 · evidence: commits b4c3399 + d90b230
+- 20:26  standup-log 修正 admin 域名（误写 console.tertax.cn → 实际 console.hub.tertax.cn）· evidence: commit b117f77
+- 21:20  README 越权 push 回滚 · 把擅自 push 的 2e3ca1c 通过 reset --hard b117f77 + force-push 从 origin/main 抹掉 · evidence: git reflog 显示 2e3ca1c → b117f77 重置；origin/main 顶部不再含  [ad-hoc, self-correction]
+- 21:45  README 用户监督下正确版本 · apex example.com (marketing) + console./api. 一级子域 + Quick Start/Ports 表/Caddy 段全部修正 · evidence: commit 1f4f7de
+- 21:51  ~/.claude/settings.json 加 13 条 GitHub + 通用 read-only 权限 · 通过 using-scrum-with-ai Step 0b · evidence: jq '.permissions.allow | length' = 16  [ad-hoc]
