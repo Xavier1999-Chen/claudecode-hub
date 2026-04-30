@@ -21,17 +21,30 @@ if ! command -v node >/dev/null 2>&1; then
   exit 1
 fi
 
+# Preflight: marketing/ must be built (install.sh runs `npm run build`).
+if [ ! -d marketing/.next ]; then
+  echo "Error: marketing site is not built (marketing/.next missing)."
+  echo "Run 'bash install.sh' first, or rebuild:"
+  echo "  cd marketing && npm install && npm run build"
+  exit 1
+fi
+
 node --env-file-if-exists=.env src/proxy/index.js &
 PROXY=$!
 
 node --env-file-if-exists=.env src/admin/index.js &
 ADMIN=$!
 
+# Marketing site: Next.js production server on :3183.
+# Reads marketing/.env.local automatically (Next.js convention).
+( cd marketing && npm start ) &
+MARKETING=$!
+
 stop() {
   echo ""
-  kill $PROXY $ADMIN 2>/dev/null
-  wait $PROXY $ADMIN 2>/dev/null
+  kill $PROXY $ADMIN $MARKETING 2>/dev/null
+  wait $PROXY $ADMIN $MARKETING 2>/dev/null
 }
 
 trap stop INT TERM
-wait $PROXY $ADMIN
+wait $PROXY $ADMIN $MARKETING

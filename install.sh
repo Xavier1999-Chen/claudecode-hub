@@ -155,7 +155,16 @@ VITE_MOCK=false
 VITE_SUPABASE_URL=$SB_URL
 VITE_SUPABASE_ANON_KEY=$SB_KEY
 EOF
-  echo ".env and src/admin/frontend/.env.local written."
+  # Marketing site (Next.js) reads NEXT_PUBLIC_ vars at build time.
+  # ADMIN_URL points to the admin app for cross-app login/console links;
+  # default to localhost during install — user should adjust for production
+  # (e.g. https://app.example.com) and rebuild via 'cd marketing && npm run build'.
+  cat > marketing/.env.local <<EOF
+NEXT_PUBLIC_SUPABASE_URL=$SB_URL
+NEXT_PUBLIC_SUPABASE_ANON_KEY=$SB_KEY
+NEXT_PUBLIC_ADMIN_URL=http://localhost:3182
+EOF
+  echo ".env, src/admin/frontend/.env.local, and marketing/.env.local written."
 fi
 
 # ── Install root dependencies ────────────────────────────────────────────────
@@ -163,13 +172,21 @@ echo ""
 echo "Installing dependencies..."
 npm install
 
-# ── Build frontend ───────────────────────────────────────────────────────────
+# ── Build admin frontend ─────────────────────────────────────────────────────
 echo ""
-echo "Building frontend..."
+echo "Building admin frontend..."
 cd src/admin/frontend
 npm install
 npm run build
 cd ../../..
+
+# ── Build marketing site (Next.js) ───────────────────────────────────────────
+echo ""
+echo "Building marketing site..."
+cd marketing
+npm install
+npm run build
+cd ..
 
 # ── Create config directory ──────────────────────────────────────────────────
 mkdir -p config
@@ -191,15 +208,23 @@ Remaining manual steps (all in the Supabase Dashboard):
      - Redirect URLs:   http://<your-host>:3182/**
                         http://localhost:3182/**
 
-  3. Start the services:
+  3. Start the services (admin :3182 + proxy :3180 + marketing :3183):
        bash start.sh
 
-  4. Register at http://<your-host>:3182, verify email, then promote yourself
+  4. Visit:
+     - Marketing site:   http://<your-host>:3183
+     - Admin dashboard:  http://<your-host>:3182
+
+  5. Register at http://<your-host>:3182, verify email, then promote yourself
      to admin via SQL Editor:
        UPDATE public.user_requests
        SET status='approved', role='admin'
        WHERE email='you@example.com';
 
-  5. Sign out and sign back in to pick up the admin JWT.
+  6. Sign out and sign back in to pick up the admin JWT.
+
+  7. (Production only) If admin lives on a different host/port from
+     localhost:3182, update marketing/.env.local's NEXT_PUBLIC_ADMIN_URL
+     and rebuild: cd marketing && npm run build
 
 DONE

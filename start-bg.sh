@@ -32,6 +32,11 @@ fi
 cat <<INFO
 Started in tmux session '$SESSION'.
 
+  Services:
+    Proxy:                  http://localhost:3180
+    Admin dashboard:        http://localhost:3182
+    Marketing site:         http://localhost:3183
+
   Attach (see logs):        tmux attach -t $SESSION
   Detach while running:     press Ctrl+B, then D
   Stop:                     tmux kill-session -t $SESSION
