@@ -83,3 +83,13 @@ PR #60 merge 后用户决定把生产域名拓扑从单子域 `hub.tertax.cn` (a
 
 代码改动 commit `97defa5` 已 push 到 main。等用户在 ECS 上 pull + 改 env +
 rebuild + 更新 Caddyfile + reload + 改 Supabase Site URL 即可生效。
+
+### Actual
+- 10:54  #58 营销首页实施 · 单 PR 23 commits 完成 (PRD/TRD/12 milestones 全过) · evidence: PR #60 merged
+- 10:43  #59 auth session 共享 · admin frontend 切到 @supabase/ssr cookie 存储 · evidence: closed by PR #60
+- 11:36  Supabase env 缺失时优雅降级 · marketing 在没配置时不再 500 · evidence: commit f25af62
+- 12:00+ 营销页迭代打磨 · scrollytelling / gauge endpoint / instant-scroll / 文案 / max-w-7xl 对齐 · evidence: commits c8d97cc → 6526215 (10 commits in PR #60)
+- 19:30  install.sh upgrade 路径修复 · 已有 .env 时也补 marketing/.env.local · evidence: commit 5326685
+- 20:18  跨子域 cookie domain 支持 · admin/marketing supabase clients 加 cookieOptions.domain via env · evidence: commit 97defa5
+- 20:18  README Caddy 段更新为三子域拓扑 · hub. (marketing) + console. (admin) + api.hub. (proxy) · evidence: commit 97defa5
+- 20:18  W18 standup-log 当日 entry 加 Update 子段记录域名切换工作 · evidence: commit b4c3399
