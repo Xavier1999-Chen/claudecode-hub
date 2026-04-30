@@ -220,7 +220,7 @@ function ProgressIndicator({ scrollYProgress, total }: ProgressIndicatorProps) {
         ))}
       </div>
       <p className="mt-6 text-center text-xs text-brand-ink/40">
-        第 {activeIndex + 1} 档 · 共 {total} 档
+        {activeIndex + 1} / {total}
       </p>
     </div>
   )
