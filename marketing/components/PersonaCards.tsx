@@ -83,7 +83,7 @@ export default function PersonaCards() {
       style={{ height: `${PERSONAS.length * 100}vh` }}
     >
       <div className="sticky top-0 flex h-screen flex-col justify-center px-8 py-12">
-        <div className="mx-auto w-full max-w-6xl">
+        <div className="mx-auto w-full max-w-7xl">
           <Heading />
 
           <div className="relative mt-12 h-[420px] md:h-[460px]">

@@ -37,8 +37,8 @@ export default function Hero({ isAuthed }: HeroProps) {
 
   return (
     <section className="px-8 pt-24 pb-32 md:pt-32 md:pb-40">
-      <div className="mx-auto max-w-5xl">
-        <h1 className="font-serif text-5xl leading-[1.1] tracking-tight text-brand-ink md:text-7xl">
+      <div className="mx-auto max-w-7xl">
+        <h1 className="font-serif text-5xl leading-[1.1] tracking-tight text-brand-ink md:text-7xl max-w-5xl">
           共享账号池，
           <br />
           让 Claude Code{' '}

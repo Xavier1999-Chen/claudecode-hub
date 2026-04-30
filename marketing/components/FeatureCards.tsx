@@ -37,7 +37,7 @@ export default function FeatureCards() {
     <section className="px-8 py-24" id="features">
       <div className="mx-auto max-w-7xl">
         <h2 className="font-serif text-3xl tracking-tight text-brand-ink md:text-4xl">
-          它做什么
+          claudecode-hub 能为您做什么
         </h2>
 
         <div className="mt-16 grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-4">
