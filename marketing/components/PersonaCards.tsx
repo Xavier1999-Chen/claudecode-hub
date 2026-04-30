@@ -35,6 +35,11 @@ interface Persona {
   description: string
   hook: string
   monthlyFee: string
+  /**
+   * Where the demo gauge needle stops within this tier's arc (0..1).
+   * Hand-picked per persona for visual distinction (not all maxed at 1).
+   */
+  targetRatio: number
 }
 
 const PERSONAS: Persona[] = [
@@ -44,6 +49,7 @@ const PERSONAS: Persona[] = [
     description: '偶尔跑个脚本、查个错，一个月用不了几次。',
     hook: '订阅 Pro 太浪费，按量又怕开销不可控 —— 这一档就解决你的犹豫。',
     monthlyFee: '¥20',
+    targetRatio: 0.4, // small arc fill — visibly "lightly used"
   },
   {
     tier: 'medium',
@@ -51,6 +57,7 @@ const PERSONAS: Persona[] = [
     description: 'Claude Code 是日常工具，每周用、赶项目时密集用。',
     hook: '和 Pro 订阅同价位，但用量真实可见。',
     monthlyFee: '¥150',
+    targetRatio: 0.65, // past center — visibly "actively in use"
   },
   {
     tier: 'heavy',
@@ -58,6 +65,7 @@ const PERSONAS: Persona[] = [
     description: 'Claude Code 是吃饭工具，每天高频用、长 session 多。',
     hook: '比 Max 订阅便宜，且能力相当 + 免封号风险。',
     monthlyFee: '¥900',
+    targetRatio: 0.85, // far right — visibly "near top of tier"
   },
   {
     tier: 'xheavy',
@@ -65,6 +73,7 @@ const PERSONAS: Persona[] = [
     description: '整天泡在 Claude Code 里，多终端并发。',
     hook: '封顶定价让你成本可控，不用担心月底惊吓账单。',
     monthlyFee: '¥1500',
+    targetRatio: 1.0, // pinned at end (xheavy has no cap)
   },
 ]
 
@@ -147,7 +156,9 @@ function PersonaSlide({
   // Slot range for this persona, e.g. for idx=1/total=4 → [0.25, 0.50].
   const start = idx / total
   const end = (idx + 1) / total
-  const fade = 0.04 // overlap region for crossfade between adjacent slides
+  // Tight crossfade (2%) so simultaneous opacity is brief; combined with
+  // larger y / scale shifts below, visually only one slide dominates.
+  const fade = 0.02
 
   const opacity = useTransform(
     scrollYProgress,
@@ -160,7 +171,8 @@ function PersonaSlide({
     [0, 1, 1, 0]
   )
 
-  // Subtle vertical drift to give the slide a sense of "arriving".
+  // Strong vertical drift so the outgoing slide is spatially out of the way
+  // before the incoming one settles. 100px exit/entrance distance.
   const y = useTransform(
     scrollYProgress,
     [
@@ -169,7 +181,20 @@ function PersonaSlide({
       end - fade,
       Math.min(1, end + fade),
     ],
-    [40, 0, 0, -40]
+    [100, 0, 0, -100]
+  )
+
+  // Slight scale-down on the outgoing/incoming slides pushes them visually
+  // into the background during transition; active slide is at scale 1.
+  const scale = useTransform(
+    scrollYProgress,
+    [
+      Math.max(0, start - fade),
+      start + fade,
+      end - fade,
+      Math.min(1, end + fade),
+    ],
+    [0.94, 1, 1, 0.94]
   )
 
   // Re-key the gauge whenever this slide becomes active (opacity crosses
@@ -188,7 +213,7 @@ function PersonaSlide({
   return (
     <motion.div
       className="absolute inset-0"
-      style={{ opacity, y }}
+      style={{ opacity, y, scale }}
       // Pointer events disabled when invisible so non-active slides don't
       // intercept clicks behind the active one.
       aria-hidden={undefined}
@@ -213,6 +238,7 @@ function PersonaContent({
           key={gaugeKey}
           mode="demo"
           lockedTier={persona.tier}
+          targetRatio={persona.targetRatio}
         />
       </div>
 

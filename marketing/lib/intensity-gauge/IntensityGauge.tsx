@@ -16,12 +16,18 @@ const ARC_PATH = `M 20 110 A ${ARC_RADIUS} ${ARC_RADIUS} 0 0 1 200 110`
 interface IntensityGaugeProps {
   /**
    * 'live' — render based on actual USD value (admin behaviour).
-   * 'demo' — single-sweep animation: ratio 0→1 within the locked tier on mount,
-   *          then hold at 1. Re-mount (via React key) to replay.
+   * 'demo' — single-sweep animation: ratio 0→targetRatio within the locked tier
+   *          on mount, then hold. Re-mount (via React key) to replay.
    */
   mode: 'live' | 'demo'
   usd?: number
   lockedTier?: Tier
+  /**
+   * Demo-mode only. Where to stop the needle within the locked tier.
+   * 0 = arc start, 1 = arc end (full tier). Defaults to 1 (full sweep).
+   * Use distinct values per persona so gauges look visually different.
+   */
+  targetRatio?: number
 }
 
 /**
@@ -39,6 +45,7 @@ export default function IntensityGauge({
   mode,
   usd,
   lockedTier,
+  targetRatio = 1,
 }: IntensityGaugeProps) {
   // Demo mode: phase 0 → 1 once, driven by CSS transition (no RAF loop).
   // Initial phase is 0 (start of arc); after mount we set 1, CSS interpolates.
@@ -66,7 +73,10 @@ export default function IntensityGauge({
     ratio = liveProgress.ratio
   } else {
     tier = lockedTier ?? 'light'
-    ratio = phase
+    // Sweep from 0 (initial paint) to targetRatio (final position).
+    // Clamp targetRatio defensively to [0, 1].
+    const clamped = Math.max(0, Math.min(1, targetRatio))
+    ratio = phase * clamped
   }
 
   const fill = tierFillColor(tier)
