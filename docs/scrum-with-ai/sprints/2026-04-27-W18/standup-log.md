@@ -72,8 +72,10 @@
 ### Update 20:16:49 · 域名拓扑切换准备
 PR #60 merge 后用户决定把生产域名拓扑从单子域 `hub.tertax.cn` (admin) 改为：
 - `hub.tertax.cn` → marketing
-- `console.tertax.cn` → admin
+- `console.hub.tertax.cn` → admin
 - `api.hub.tertax.cn` → proxy（不变）
+
+cookie 共享父域 = `.hub.tertax.cn`（让 console. / api. / hub. 都能访问）。
 
 为支持跨子域 session 共享：
 - admin frontend `supabase.js` + marketing `lib/supabase.ts` 加 `cookieOptions.domain`
