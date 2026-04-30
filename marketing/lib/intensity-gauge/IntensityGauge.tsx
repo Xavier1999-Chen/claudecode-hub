@@ -56,10 +56,27 @@ export default function IntensityGauge({
   const fill = tierFillColor(tier)
 
   // Derive SVG-ready motion values from ratio.
+  //
+  // Needle endpoint geometry (instead of CSS rotate):
+  //   - Pivot at (110, 110), length 75px
+  //   - At ratio=0   → point left  (toward arc start near (20, 110))
+  //   - At ratio=0.5 → point up    (12 o'clock, near (110, 35))
+  //   - At ratio=1   → point right (toward arc end near (200, 110))
+  //   - Angle (math convention, anti-clockwise from +x): θ = (1 - ratio) × π
+  //   - x2 = 110 + 75 cos(θ);  y2 = 110 − 75 sin(θ)  (SVG y-axis is inverted)
+  //
+  // We compute x2 / y2 as motion values and pass them as SVG attributes —
+  // motion subscribes to numeric attribute MotionValues natively, no rotate
+  // / transformOrigin / transform-box issues.
+  const NEEDLE_LEN = 75
   const dashOffset = useTransform(ratio, r => ARC_LEN * (1 - r))
-  const needleTransform = useTransform(
+  const needleX2 = useTransform(
     ratio,
-    r => `rotate(${r * 180 - 90} 110 110)`
+    r => 110 + NEEDLE_LEN * Math.cos((1 - r) * Math.PI)
+  )
+  const needleY2 = useTransform(
+    ratio,
+    r => 110 - NEEDLE_LEN * Math.sin((1 - r) * Math.PI)
   )
 
   return (
@@ -87,16 +104,15 @@ export default function IntensityGauge({
         strokeDasharray={ARC_LEN}
         style={{ strokeDashoffset: dashOffset }}
       />
-      {/* Needle — SVG transform attribute as motion value (rotates around 110,110) */}
+      {/* Needle — endpoint x2/y2 driven by motion values (no CSS rotate) */}
       <motion.line
         x1="110"
         y1="110"
-        x2="110"
-        y2="35"
+        x2={needleX2}
+        y2={needleY2}
         stroke="var(--color-brand-ink)"
         strokeWidth="3"
         strokeLinecap="round"
-        transform={needleTransform}
       />
       {/* Hub */}
       <circle cx="110" cy="110" r="6" fill="var(--color-brand-ink)" />
