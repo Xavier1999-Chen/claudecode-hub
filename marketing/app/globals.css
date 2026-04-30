@@ -1,0 +1,52 @@
+@import "tailwindcss";
+
+/*
+ * Brand tokens (sync with admin frontend's CSS palette).
+ * Tailwind 4 CSS-first config: @theme block exposes design tokens
+ * as Tailwind utility classes (e.g. bg-brand-orange, text-brand-ink).
+ */
+@theme {
+  --color-brand-orange: #E87040;
+  --color-brand-orange-deep: #C0532A;
+  --color-brand-orange-soft: #F5A570;
+  --color-brand-orange-pale: #FDDCCC;
+  --color-brand-ink: #1C1917;
+  --color-brand-cream: #F4F1EB;
+  --color-brand-cream-deep: #E9E2D2;
+
+  --font-sans: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
+  --font-serif: var(--font-source-serif), ui-serif, "Source Serif 4", Georgia, serif;
+
+  /* Heading scale tuned for hero presence (Anthropic-ish proportions) */
+  --text-hero: 4rem;
+  --text-hero--line-height: 1.1;
+  --text-hero--letter-spacing: -0.02em;
+}
+
+/* Reset + base behaviour */
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  background: var(--color-brand-cream);
+  color: var(--color-brand-ink);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Fallback when prefers-reduced-motion is on: kill smooth scroll + animations */
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
