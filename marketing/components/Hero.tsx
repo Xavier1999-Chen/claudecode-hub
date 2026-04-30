@@ -1,3 +1,5 @@
+'use client'
+
 import { adminLinks } from '@/lib/links'
 
 interface HeroProps {
@@ -14,7 +16,21 @@ interface HeroProps {
  *
  * Hero 始终保留主 CTA，避免登录态下整片留白；导航 / 底部 CTA 仍按 PRD
  * 隐藏注册路径。次级 CTA「看看怎么用」无关登录态，永远展示。
+ *
+ * 「看看怎么用」用 instant scroll 跳到 #personas，避免 smooth-scroll
+ * 越过 hero 触发 scrollytelling 区域的 scrubbing（与 MarketingNav 同理）。
  */
+function jumpToAnchor(e: React.MouseEvent<HTMLAnchorElement>, hash: string) {
+  e.preventDefault()
+  const targetId = hash.replace(/^#/, '')
+  const target = document.getElementById(targetId)
+  if (!target) return
+  const navHeight = 64
+  const top = target.getBoundingClientRect().top + window.scrollY - navHeight
+  window.scrollTo({ top, behavior: 'instant' })
+  history.replaceState(null, '', hash)
+}
+
 export default function Hero({ isAuthed }: HeroProps) {
   const primaryHref = isAuthed ? adminLinks.console : adminLinks.register
   const primaryLabel = isAuthed ? '开始使用' : '免费注册'
@@ -43,6 +59,7 @@ export default function Hero({ isAuthed }: HeroProps) {
           </a>
           <a
             href="#personas"
+            onClick={e => jumpToAnchor(e, '#personas')}
             className="rounded-full border border-brand-ink/15 bg-transparent px-7 py-3.5 text-base font-medium text-brand-ink transition-colors hover:border-brand-ink/40"
             aria-label="看看怎么用"
           >
