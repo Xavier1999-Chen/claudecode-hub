@@ -11,6 +11,7 @@
     "gen:icons": "node scripts/gen-icons.mjs"
   },
   "dependencies": {
+    "@supabase/ssr": "^0.5.2",
     "@supabase/supabase-js": "^2.103.3",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",

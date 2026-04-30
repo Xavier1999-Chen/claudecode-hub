@@ -10,7 +10,12 @@ CLAUDE.md
 # Tool/session artifacts
 .superpowers/
 .worktrees/
-docs/
+# docs/ is local-only by default (e.g. docs/superpowers/)
+# Exception: track scrum metadata (project state, sprints, stories, PRD/TRD, retro)
+docs/*
+!docs/scrum-with-ai/
+# Other nested docs/ directories (e.g. assets/docs/ vitepress experiment) stay local-only
+assets/docs/
 
 # local test scripts containing secrets
 test-relay.sh
