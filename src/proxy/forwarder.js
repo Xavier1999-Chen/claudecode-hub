@@ -4,6 +4,7 @@ import { createUsageTapper } from './usage-tracker.js';
 import { isOAuthRevoked } from './permission-guard.js';
 import { applyModelMap } from './model-map.js';
 import { resolveAggregatedProvider, rewriteModel } from './aggregated-router.js';
+import { sanitizeForeignThinkingBlocks } from './thinking-sanitizer.js';
 
 const UPSTREAM = 'https://api.anthropic.com';
 const UPSTREAM_TIMEOUT_MS = 60_000;
@@ -95,14 +96,24 @@ export async function forwardRequest(req, res, account, terminalId, pool, triedI
 
   let outBody = req.method !== 'GET' && req.method !== 'HEAD' ? req.rawBody : undefined;
 
-  // NOTE: We no longer strip thinking blocks. Anthropic-compatible
-  // upstreams (including DeepSeek/Kimi /anthropic endpoints) require
-  // thinking blocks to be replayed on subsequent turns. Stripping them
-  // causes a 400 "thinking must be passed back" error.
-  // The original stripping was meant to avoid signature mismatches when
-  // the OAuth pool rotates accounts between turns; that is now handled
-  // as a known limitation (sticky account selection for thinking convs).
-  // if (outBody) outBody = stripThinkingBlocks(outBody);
+  // Issue #40: when routing to a real Anthropic OAuth account, strip
+  // "foreign" thinking blocks (those whose signatures came from a
+  // non-Anthropic upstream — relay/aggregated providers serving GLM /
+  // Kimi / etc.) from the conversation history. Anthropic decrypts the
+  // signature server-side and rejects with 400 "Invalid signature in
+  // thinking block" when it can't decrypt. Stripping is safe per
+  // Anthropic's docs: "you can omit thinking blocks from previous
+  // turns, or let the API strip them for you". Real signed blocks
+  // (length >= 50 chars) are left untouched. The "thinking must be
+  // passed back" 400 is a separate edge case (mid-tool-use loop with
+  // thinking enabled) which this fix does not change behaviour for.
+  if (!isRelay && !isAggregated && outBody && body && Array.isArray(body.messages)) {
+    const stripped = sanitizeForeignThinkingBlocks(body);
+    if (stripped > 0) {
+      outBody = Buffer.from(JSON.stringify(body));
+      console.log(`[fwd] sanitized ${stripped} foreign thinking block(s) for ${account.email ?? account.id}`);
+    }
+  }
 
   if (isRelay || isAggregated) {
     // Relay / Aggregated station: static API key, no OAuth beta, no 1M-context stripping.
