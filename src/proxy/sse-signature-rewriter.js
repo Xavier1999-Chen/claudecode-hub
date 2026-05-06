@@ -41,13 +41,33 @@ export function createForeignSignatureRewriter() {
     return eventText.split('\n').map(line => {
       if (!line.startsWith('data: ')) return line;
       const jsonStr = line.slice(6);
-      if (!jsonStr.includes('signature_delta')) return line;
+      if (!jsonStr.includes('signature')) return line;
       try {
         const obj = JSON.parse(jsonStr);
+        // Form 1 (Anthropic streaming spec): signature arrives in
+        // content_block_delta with delta.type === 'signature_delta'.
         if (obj?.type === 'content_block_delta'
             && obj?.delta?.type === 'signature_delta'
             && typeof obj.delta.signature === 'string') {
+          console.log(`[sse-rewriter] rewrote signature_delta (orig len=${obj.delta.signature.length})`);
           obj.delta.signature = FOREIGN_SIGNATURE_SENTINEL;
+          return 'data: ' + JSON.stringify(obj);
+        }
+        // Form 2 (some non-standard upstreams): signature embedded
+        // directly inside a content_block_start of type=thinking.
+        if (obj?.type === 'content_block_start'
+            && obj?.content_block?.type === 'thinking'
+            && typeof obj.content_block.signature === 'string') {
+          console.log(`[sse-rewriter] rewrote content_block_start.thinking.signature (orig len=${obj.content_block.signature.length})`);
+          obj.content_block.signature = FOREIGN_SIGNATURE_SENTINEL;
+          return 'data: ' + JSON.stringify(obj);
+        }
+        // Form 3 (other non-standard): signature in content_block_stop.
+        if (obj?.type === 'content_block_stop'
+            && obj?.content_block?.type === 'thinking'
+            && typeof obj.content_block.signature === 'string') {
+          console.log(`[sse-rewriter] rewrote content_block_stop.thinking.signature (orig len=${obj.content_block.signature.length})`);
+          obj.content_block.signature = FOREIGN_SIGNATURE_SENTINEL;
           return 'data: ' + JSON.stringify(obj);
         }
       } catch { /* leave the line as-is on parse failure */ }

@@ -109,6 +109,28 @@ export async function forwardRequest(req, res, account, terminalId, pool, triedI
   // passed back" 400 is a separate edge case (mid-tool-use loop with
   // thinking enabled) which this fix does not change behaviour for.
   if (!isRelay && !isAggregated && outBody && body && Array.isArray(body.messages)) {
+    // Diagnostic: enumerate every thinking-block signature observed on the
+    // OAuth-bound request, before the sanitizer runs. Helps locate whether
+    // the rewriter actually marked the agg/relay turn or if the signature
+    // arrived through a code path the rewriter doesn't yet cover.
+    const sigInfo = [];
+    for (const m of body.messages) {
+      if (m.role !== 'assistant' || !Array.isArray(m.content)) continue;
+      for (const b of m.content) {
+        if (b?.type === 'thinking') {
+          const sig = b.signature;
+          sigInfo.push({
+            type: typeof sig,
+            len: typeof sig === 'string' ? sig.length : null,
+            head: typeof sig === 'string' ? sig.slice(0, 40) : null,
+          });
+        }
+      }
+    }
+    if (sigInfo.length > 0) {
+      console.log(`[fwd] OAuth-bound thinking sigs (${sigInfo.length}):`,
+        JSON.stringify(sigInfo));
+    }
     const stripped = sanitizeForeignThinkingBlocks(body);
     if (stripped > 0) {
       outBody = Buffer.from(JSON.stringify(body));

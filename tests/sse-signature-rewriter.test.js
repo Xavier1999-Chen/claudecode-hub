@@ -13,6 +13,24 @@ async function runThrough(rewriter, chunks) {
   });
 }
 
+test('rewrites signature embedded in content_block_start.thinking', async () => {
+  const rewriter = createForeignSignatureRewriter();
+  const sse = 'event: content_block_start\n'
+    + 'data: {"type":"content_block_start","index":0,"content_block":{"type":"thinking","thinking":"reasoning","signature":"non_standard_inline_sig"}}\n\n';
+  const out = await runThrough(rewriter, [sse]);
+  assert.match(out, new RegExp(`"signature":"${FOREIGN_SIGNATURE_SENTINEL}"`));
+  assert.doesNotMatch(out, /non_standard_inline_sig/);
+});
+
+test('rewrites signature embedded in content_block_stop.thinking', async () => {
+  const rewriter = createForeignSignatureRewriter();
+  const sse = 'event: content_block_stop\n'
+    + 'data: {"type":"content_block_stop","index":0,"content_block":{"type":"thinking","thinking":"...","signature":"trailing_sig"}}\n\n';
+  const out = await runThrough(rewriter, [sse]);
+  assert.match(out, new RegExp(`"signature":"${FOREIGN_SIGNATURE_SENTINEL}"`));
+  assert.doesNotMatch(out, /trailing_sig/);
+});
+
 test('rewrites signature_delta to sentinel', async () => {
   const rewriter = createForeignSignatureRewriter();
   const sse = 'event: content_block_delta\n'
