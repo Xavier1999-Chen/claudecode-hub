@@ -1,43 +1,20 @@
 /**
- * Strip "foreign" thinking blocks from outbound conversation history
- * before forwarding to Anthropic OAuth accounts.
+ * Strip thinking blocks whose signatures came from a non-Anthropic upstream
+ * before forwarding the conversation history to a real Anthropic OAuth
+ * account. Anthropic decrypts signatures cryptographically and 400s on any
+ * blob it didn't produce ("Invalid `signature` in `thinking` block"); per
+ * Anthropic's docs, omitting prior-turn thinking blocks is safe.
  *
- * Issue #40 background:
+ * Detection:
+ *   - **Sentinel match (primary)**: sse-signature-rewriter.js rewrites
+ *     every relay/aggregated signature to FOREIGN_SIGNATURE_SENTINEL on
+ *     inbound, so on replay we just check sig === sentinel.
+ *   - **Length fallback**: signatures missing, non-string, or < 50 chars
+ *     are also stripped — covers legacy turns from before the rewriter
+ *     shipped and pathological providers that return empty signatures.
  *
- * Anthropic's `thinking` content blocks carry a `signature` field that
- * is the cryptographically-encrypted thinking content. When the proxy
- * pool routes a multi-turn conversation across heterogeneous upstreams
- * (e.g. turn 1 went via an aggregated provider serving GLM / Kimi /
- * any non-Anthropic Claude-compatible model, turn 2 lands on a real
- * Anthropic OAuth account), the assistant history sent on turn 2
- * contains thinking blocks whose signatures cannot be decrypted by
- * Anthropic. Anthropic rejects with:
- *
- *   400 invalid_request_error
- *   "messages.N.content.M: Invalid `signature` in `thinking` block"
- *
- * Stripping the *entire* thinking block from history is safe in the
- * normal case (per Anthropic's docs: "you can omit thinking blocks from
- * previous turns ... or let the API strip them for you"), and is the
- * approach used by LiteLLM, CLIProxyAPI, and similar projects.
- *
- * Detection strategy:
- *
- *   - **Sentinel match (primary)**: `sse-signature-rewriter.js` rewrites
- *     every signature emitted by a relay / aggregated upstream to a
- *     known sentinel string before the SSE reaches the client. When
- *     Claude Code replays the assistant turn back to us, the foreign
- *     block is unambiguously identifiable by sig === sentinel — no
- *     reliance on signature length / shape, which can vary per provider
- *     (GLM-style fakes have been observed at 4 KB, well above any
- *     length-based threshold).
- *
- *   - **Length heuristic (fallback)**: signatures missing / non-string
- *     / shorter than 50 chars are also treated as foreign. This catches
- *     legacy turns logged before the rewriter shipped, plus pathological
- *     responses (provider returns empty signature).
- *
- * Real Anthropic signatures (don't match either rule) pass through.
+ * Real Anthropic signatures (long base64 blobs that match neither rule)
+ * pass through untouched.
  */
 
 import { FOREIGN_SIGNATURE_SENTINEL } from './sse-signature-rewriter.js';

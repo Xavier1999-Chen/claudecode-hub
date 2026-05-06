@@ -1,5 +1,4 @@
 import fetch from 'node-fetch';
-import { Transform } from 'node:stream';
 import { HttpsProxyAgent } from 'https-proxy-agent';
 import { createUsageTapper } from './usage-tracker.js';
 import { isOAuthRevoked } from './permission-guard.js';
@@ -98,40 +97,12 @@ export async function forwardRequest(req, res, account, terminalId, pool, triedI
 
   let outBody = req.method !== 'GET' && req.method !== 'HEAD' ? req.rawBody : undefined;
 
-  // Issue #40: when routing to a real Anthropic OAuth account, strip
-  // "foreign" thinking blocks (those whose signatures came from a
-  // non-Anthropic upstream — relay/aggregated providers serving GLM /
-  // Kimi / etc.) from the conversation history. Anthropic decrypts the
-  // signature server-side and rejects with 400 "Invalid signature in
-  // thinking block" when it can't decrypt. Stripping is safe per
-  // Anthropic's docs: "you can omit thinking blocks from previous
-  // turns, or let the API strip them for you". Real signed blocks
-  // (length >= 50 chars) are left untouched. The "thinking must be
-  // passed back" 400 is a separate edge case (mid-tool-use loop with
-  // thinking enabled) which this fix does not change behaviour for.
+  // Issue #40: when routing to OAuth, strip thinking blocks whose
+  // signatures came from a relay/aggregated upstream — Anthropic
+  // decrypts signatures cryptographically and 400s on anything it
+  // didn't produce. Detection lives in thinking-sanitizer.js
+  // (sentinel match, set by sse-signature-rewriter.js on inbound).
   if (!isRelay && !isAggregated && outBody && body && Array.isArray(body.messages)) {
-    // Diagnostic: enumerate every thinking-block signature observed on the
-    // OAuth-bound request, before the sanitizer runs. Helps locate whether
-    // the rewriter actually marked the agg/relay turn or if the signature
-    // arrived through a code path the rewriter doesn't yet cover.
-    const sigInfo = [];
-    for (const m of body.messages) {
-      if (m.role !== 'assistant' || !Array.isArray(m.content)) continue;
-      for (const b of m.content) {
-        if (b?.type === 'thinking') {
-          const sig = b.signature;
-          sigInfo.push({
-            type: typeof sig,
-            len: typeof sig === 'string' ? sig.length : null,
-            head: typeof sig === 'string' ? sig.slice(0, 40) : null,
-          });
-        }
-      }
-    }
-    if (sigInfo.length > 0) {
-      console.log(`[fwd] OAuth-bound thinking sigs (${sigInfo.length}):`,
-        JSON.stringify(sigInfo));
-    }
     const stripped = sanitizeForeignThinkingBlocks(body);
     if (stripped > 0) {
       outBody = Buffer.from(JSON.stringify(body));
@@ -293,28 +264,11 @@ export async function forwardRequest(req, res, account, terminalId, pool, triedI
     : requestedTier;
   if (ct.includes('text/event-stream')) {
     const tapper = createUsageTapper({ accountId: account.id, terminalId, model, tier: resolvedTier });
-    // Issue #40: relay / aggregated upstreams emit thinking-block signatures
-    // that are not Anthropic-decryptable. Rewrite them to a sentinel as they
-    // stream through, so future replays of this conversation history can be
-    // identified and stripped before being sent to a real Anthropic OAuth
-    // account (handled in thinking-sanitizer.js).
+    // Issue #40: tag relay / aggregated thinking signatures with a sentinel
+    // as they stream through; thinking-sanitizer strips them on later replay
+    // to a real Anthropic OAuth account. See sse-signature-rewriter.js.
     if (isRelay || isAggregated) {
-      // Diagnostic: tee first 2 KB of raw upstream SSE per request so we can
-      // see exact event format from the agg/relay provider.
-      let teeBytes = 0;
-      const teeDumper = new Transform({
-        transform(chunk, _enc, cb) {
-          if (teeBytes < 2000) {
-            const remaining = 2000 - teeBytes;
-            const slice = chunk.slice(0, remaining);
-            console.log(`[fwd-tee ${account.id}] +${chunk.length}b raw:`,
-              JSON.stringify(slice.toString('utf8')));
-            teeBytes += chunk.length;
-          }
-          cb(null, chunk);
-        },
-      });
-      upRes.body.pipe(teeDumper).pipe(createForeignSignatureRewriter()).pipe(tapper).pipe(res);
+      upRes.body.pipe(createForeignSignatureRewriter()).pipe(tapper).pipe(res);
     } else {
       upRes.body.pipe(tapper).pipe(res);
     }
