@@ -112,3 +112,41 @@ rebuild + 更新 Caddyfile + reload + 改 Supabase Site URL 即可生效。
 - 主线: 走 product-requirement-first 起 admin-restyle PRD（标"很重要"）
 - 看心情: 补 #58 风格尾巴（tab logo / 配色细节）
 - 仍 blocked: 无
+
+## 2026-05-06 (Wed) · Sprint Day 10/14
+> 写入时间：2026-05-06T10:12:37+08:00 · sprint=2026-04-27-W18
+
+### Yesterday
+- 计划（来自 04-30 entry Today + Tomorrow's seed）:
+  - #58 营销首页实施（issue-first-dev 整套）
+  - 04-30 收盘后：起 admin-restyle PRD + 补 #58 风格尾巴
+  - #56 / #40 / #57 暂缓
+- 实际:
+  - 04-30: #58 PR #60 merged @ 19:39（marketing/ Next.js 15 主体；顺手 close #59）+ ad-hoc cleanup（cookie domain `97defa5` / install.sh 修复 `5326685` / README 三子域 `1f4f7de` / 14+11 stale 分支清理）
+  - 04-30 EOD 22:13 lock，commit `44650ad`
+  - 05-01 → 05-05: 五一假期，no significant change（git/gh 校验：0 commit / 0 PR / 0 issue closed）
+  - 05-05: 用户使用时发现 OAuth token 已过期未自动刷新 → bug 浮出（5/2-5/4 无流量未暴露）
+- 差距:
+  - 04-30 计划只列 #58，实际还做了 cookie domain / README / install.sh / 分支清理一堆 ad-hoc，颗粒度仍偏粗
+  - admin-restyle PRD 因假期未起，今天也未排（继续往后挪）
+  - **新发现 latent bug**：OAuth token 自动刷新失效，需 root cause 排查
+
+### Today
+- **#40 中转站 thinking signature bug**（sprint committed P2，今天收）
+- **#57 优化用户使用指南**（sprint committed，今天收）
+- **[P0 ad-hoc] OAuth token 自动刷新失效**：先快速排查 root cause（开发产生的 bug？Claude Code 刷新机制变了？其他？）→ 再决定要不要立 issue 走流程
+- 与 sprint goal 关系: #40 / #57 on-goal（committed scope）；OAuth bug 是 ad-hoc 介入（紧急 latent bug，5/5 用户暴露），暂不计入 sprint commits 待 root cause 后判
+- ⏸ 推迟: admin-restyle PRD（PO 标"很重要"但今天排不下）；#58 风格尾巴；#56 充值模块（仍 0 进度）
+
+### Blockers
+- 无
+
+### Realignment (L1)
+- trigger: 5/5 用户发现 OAuth token 过期未自动刷新；5/2-5/4 五一假期无流量，bug 在假期前已存在但未被发现
+- decision: 今天优先 #40 + #57（兑现 sprint commit）；OAuth bug 先排查 root cause 不立刻立 issue —— 排查产物决定下一步走向（developer-introduced bug → 立 P0 issue 走 issue-first-dev；upstream 协议变化 → 立 issue + 标 upstream-tracking；其他原因 → 视情况判）
+- 同步到: 暂不动 sprint-plan.md committed[]；root cause 明确后若需立 issue，再考虑是否拉进本 sprint 或推到下 sprint backlog
+
+### Sprint Goal Progress
+- 状态: at-risk
+- 理由（用户原话）: 充值模块 0 进度，剩 4 天起步偏紧
+
