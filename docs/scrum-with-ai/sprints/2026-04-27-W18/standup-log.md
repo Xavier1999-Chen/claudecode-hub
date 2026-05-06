@@ -138,13 +138,18 @@ rebuild + 更新 Caddyfile + reload + 改 Supabase Site URL 即可生效。
 - 与 sprint goal 关系: #40 / #57 on-goal（committed scope）；OAuth bug 是 ad-hoc 介入（紧急 latent bug，5/5 用户暴露），暂不计入 sprint commits 待 root cause 后判
 - ⏸ 推迟: admin-restyle PRD（PO 标"很重要"但今天排不下）；#58 风格尾巴；#56 充值模块（仍 0 进度）
 
+### Actual
+- 17:52  #57 (PR #61) · 优化用户使用指南：env var `ANTHROPIC_API_KEY` → `ANTHROPIC_AUTH_TOKEN`、新增 `CLAUDE_CODE_EFFORT_LEVEL=max`、新增 Step 3「跳过首次登录引导」 · evidence: PR #61 merged, commits 49be07f + 7f13f42
+- 19:02  [ad-hoc] OAuth refresh_token 失效 root cause 排查 + issue #62 立案 · 静态代码审查 + ECS tmux scrollback 取证（数百行 `Refresh token not found or invalid`）+ web 调研（claude-code#24317 / token-weather#83 等证实 Anthropic OAuth 实施 RT rotation）+ 全局审视 admin 14 处 writeAccounts → 定位真因为 admin 进程内多个 async writer 间 read-modify-write 竞态（probeAllRelays 60s timer 与 report-credentials handler 互相覆盖凭证更新）· evidence: issue #62 created with full RCA + 修法（async-mutex 串行化）+ DoD + out-of-scope 单独跟踪项
+
 ### Blockers
 - 无
 
-### Realignment (L1)
-- trigger: 5/5 用户发现 OAuth token 过期未自动刷新；5/2-5/4 五一假期无流量，bug 在假期前已存在但未被发现
-- decision: 今天优先 #40 + #57（兑现 sprint commit）；OAuth bug 先排查 root cause 不立刻立 issue —— 排查产物决定下一步走向（developer-introduced bug → 立 P0 issue 走 issue-first-dev；upstream 协议变化 → 立 issue + 标 upstream-tracking；其他原因 → 视情况判）
-- 同步到: 暂不动 sprint-plan.md committed[]；root cause 明确后若需立 issue，再考虑是否拉进本 sprint 或推到下 sprint backlog
+### Realignment (L2) · OAuth 修复（#62）拉进 sprint scope
+- trigger: 上午 #62 root cause 排查产出明确 → admin 进程内 async writer 竞态（commit a5d0053 single-writer principle 设计盲区，未覆盖 admin 内部并发）
+- decision: #62 拉进本 sprint commits（生产事故、修法 scope 明确、估计几小时改动；推到下 sprint 拉长事故回归时间）
+- 同步到: sprint-plan.md committed[] 增加 #62、corrections[] 记录 scope 变更
+- 备注: 原 L1 entry 保留（决策路径完整审计），本 L2 是后续升级
 
 ### Sprint Goal Progress
 - 状态: at-risk

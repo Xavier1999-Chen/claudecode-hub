@@ -11,9 +11,11 @@ committed:
   - { type: story, ref: "issue#56" }
   - { type: bug,   ref: "issue#40" }
   - { type: story, ref: "issue#57" }
+  - { type: bug,   ref: "issue#62" }
 definition_of_done: "PR merged to main + 用户在 sprint review 接受；充值流程额外要求端到端跑通真实小额支付"
 extensions: []
-corrections: []
+corrections:
+  - { at: "2026-05-06T19:02+08:00", action: "add", ref: "issue#62", reason: "P0 生产事故：OAuth refresh_token rotation 后被 admin 内并发 race 覆盖导致永久失效；root cause 排查后拉进 sprint scope，修法明确不大重构" }
 ---
 
 # Sprint 2026-04-27-W18
