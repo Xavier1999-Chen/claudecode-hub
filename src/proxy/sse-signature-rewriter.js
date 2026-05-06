@@ -36,12 +36,19 @@ export const FOREIGN_SIGNATURE_SENTINEL = '__hub_foreign_signature__';
  */
 export function createForeignSignatureRewriter() {
   let pending = '';
+  let dumped = 0;
 
   function rewriteEvent(eventText) {
     return eventText.split('\n').map(line => {
       if (!line.startsWith('data: ')) return line;
       const jsonStr = line.slice(6);
       if (!jsonStr.includes('signature')) return line;
+      // Diagnostic dump: first 3 sig-bearing lines per request, truncated.
+      if (dumped < 3) {
+        dumped++;
+        console.log(`[sse-rewriter] sig-bearing data line #${dumped} (len=${jsonStr.length}):`,
+          jsonStr.slice(0, 400));
+      }
       try {
         const obj = JSON.parse(jsonStr);
         // Form 1 (Anthropic streaming spec): signature arrives in
