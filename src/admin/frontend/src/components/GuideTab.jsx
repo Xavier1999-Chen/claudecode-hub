@@ -35,15 +35,17 @@ function EnvVarsBlock({ token = 'sk-hub-xxx', shell }) {
   if (shell === 'powershell') {
     return (
       <CodeBlock code={`[System.Environment]::SetEnvironmentVariable("ANTHROPIC_BASE_URL", "https://api.hub.tertax.cn", "User")
-[System.Environment]::SetEnvironmentVariable("ANTHROPIC_API_KEY", "${token}", "User")
-[System.Environment]::SetEnvironmentVariable("CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC", "1", "User")`} />
+[System.Environment]::SetEnvironmentVariable("ANTHROPIC_AUTH_TOKEN", "${token}", "User")
+[System.Environment]::SetEnvironmentVariable("CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC", "1", "User")
+[System.Environment]::SetEnvironmentVariable("CLAUDE_CODE_EFFORT_LEVEL", "max", "User")`} />
     )
   }
   const rc = shell === 'zsh' ? '~/.zshrc' : shell === 'bash_profile' ? '~/.bash_profile' : '~/.bashrc'
   return (
     <CodeBlock code={`echo 'export ANTHROPIC_BASE_URL="https://api.hub.tertax.cn"' >> ${rc}
-echo 'export ANTHROPIC_API_KEY="${token}"' >> ${rc}
+echo 'export ANTHROPIC_AUTH_TOKEN="${token}"' >> ${rc}
 echo 'export CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1' >> ${rc}
+echo 'export CLAUDE_CODE_EFFORT_LEVEL=max' >> ${rc}
 source ${rc}`} />
   )
 }
@@ -79,20 +81,30 @@ function WindowsGuide() {
         <Note>遇到权限错误？确认以管理员身份运行 PowerShell。执行策略错误时运行：<br /><code>Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser</code></Note>
       </Step>
 
-      <Step n={3} title="配置环境变量">
+      <Step n={3} title="跳过首次登录引导">
+        <p>首次运行 <code>claude</code> 会触发与 Hub 不兼容的官方登录引导。先在配置文件里写入跳过标记。</p>
+        <p>用记事本或 VS Code 打开 <code>%USERPROFILE%\.claude.json</code>（资源管理器地址栏直接粘贴此路径回车即可定位；文件不存在就新建）。写入：</p>
+        <CodeBlock code={`{
+  "hasCompletedOnboarding": true
+}`} />
+        <Note>文件已有内容时，把 <code>"hasCompletedOnboarding": true</code> 加到现有 JSON 对象中即可，不要整体覆盖。</Note>
+      </Step>
+
+      <Step n={4} title="配置环境变量">
         <p>将 <code>sk-hub-xxx</code> 替换为你的 Terminal Token，在 PowerShell 中运行：</p>
         <EnvVarsBlock shell="powershell" />
         <p className="guide-verify-label">验证：</p>
         <CodeBlock code={`[System.Environment]::GetEnvironmentVariable("ANTHROPIC_BASE_URL", "User")
-[System.Environment]::GetEnvironmentVariable("ANTHROPIC_API_KEY", "User")`} />
+[System.Environment]::GetEnvironmentVariable("ANTHROPIC_AUTH_TOKEN", "User")`} />
         <div className="guide-env-desc">
           <div className="guide-env-row"><code>ANTHROPIC_BASE_URL</code><span>Hub 代理地址，所有请求通过此地址转发</span></div>
-          <div className="guide-env-row"><code>ANTHROPIC_API_KEY</code><span>你的 Terminal Token，用于身份验证</span></div>
+          <div className="guide-env-row"><code>ANTHROPIC_AUTH_TOKEN</code><span>你的 Terminal Token，用于身份验证</span></div>
           <div className="guide-env-row"><code>CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC</code><span>禁用遥测数据上报，避免连接超时</span></div>
+          <div className="guide-env-row"><code>CLAUDE_CODE_EFFORT_LEVEL</code><span>推荐启用 max 推理强度</span></div>
         </div>
       </Step>
 
-      <Step n={4} title="验证和使用">
+      <Step n={5} title="验证和使用">
         <Note>必须<strong>重启 PowerShell</strong>（以普通用户身份）才能使环境变量生效。</Note>
         <CodeBlock code={`claude --version\nclaude`} />
         <p>在项目目录中使用：</p>
@@ -141,7 +153,16 @@ function MacosGuide() {
         <Note>遇到权限错误？使用 <code>sudo npm install -g @anthropic-ai/claude-code</code></Note>
       </Step>
 
-      <Step n={3} title="配置环境变量">
+      <Step n={3} title="跳过首次登录引导">
+        <p>首次运行 <code>claude</code> 会触发与 Hub 不兼容的官方登录引导。先在配置文件里写入跳过标记。</p>
+        <p>用编辑器打开 <code>~/.claude.json</code>（文件不存在就新建）。写入：</p>
+        <CodeBlock code={`{
+  "hasCompletedOnboarding": true
+}`} />
+        <Note>文件已有内容时，把 <code>"hasCompletedOnboarding": true</code> 加到现有 JSON 对象中即可，不要整体覆盖。</Note>
+      </Step>
+
+      <Step n={4} title="配置环境变量">
         <p>不确定用的是哪种 Shell？运行 <code>echo $SHELL</code> 查看。</p>
         <div className="guide-shell-switch">
           <button className={`guide-platform-btn ${shell === 'zsh' ? 'active' : ''}`} onClick={() => setShell('zsh')}>zsh（默认）</button>
@@ -150,15 +171,16 @@ function MacosGuide() {
         <p>将 <code>sk-hub-xxx</code> 替换为你的 Terminal Token：</p>
         <EnvVarsBlock shell={shell} />
         <p className="guide-verify-label">验证：</p>
-        <CodeBlock code={`echo $ANTHROPIC_BASE_URL\necho $ANTHROPIC_API_KEY`} />
+        <CodeBlock code={`echo $ANTHROPIC_BASE_URL\necho $ANTHROPIC_AUTH_TOKEN`} />
         <div className="guide-env-desc">
           <div className="guide-env-row"><code>ANTHROPIC_BASE_URL</code><span>Hub 代理地址，所有请求通过此地址转发</span></div>
-          <div className="guide-env-row"><code>ANTHROPIC_API_KEY</code><span>你的 Terminal Token，用于身份验证</span></div>
+          <div className="guide-env-row"><code>ANTHROPIC_AUTH_TOKEN</code><span>你的 Terminal Token，用于身份验证</span></div>
           <div className="guide-env-row"><code>CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC</code><span>禁用遥测数据上报，避免连接超时</span></div>
+          <div className="guide-env-row"><code>CLAUDE_CODE_EFFORT_LEVEL</code><span>推荐启用 max 推理强度</span></div>
         </div>
       </Step>
 
-      <Step n={4} title="验证和使用">
+      <Step n={5} title="验证和使用">
         <Note>必须<strong>重新打开 Terminal</strong> 才能使环境变量生效。</Note>
         <CodeBlock code={`claude --version\nclaude`} />
         <p>在项目目录中使用：</p>
@@ -217,7 +239,16 @@ function LinuxGuide() {
         <Note>遇到权限错误？使用 <code>sudo npm install -g @anthropic-ai/claude-code</code></Note>
       </Step>
 
-      <Step n={3} title="配置环境变量">
+      <Step n={3} title="跳过首次登录引导">
+        <p>首次运行 <code>claude</code> 会触发与 Hub 不兼容的官方登录引导。先在配置文件里写入跳过标记。</p>
+        <p>用编辑器打开 <code>~/.claude.json</code>（文件不存在就新建）。写入：</p>
+        <CodeBlock code={`{
+  "hasCompletedOnboarding": true
+}`} />
+        <Note>文件已有内容时，把 <code>"hasCompletedOnboarding": true</code> 加到现有 JSON 对象中即可，不要整体覆盖。</Note>
+      </Step>
+
+      <Step n={4} title="配置环境变量">
         <p>不确定用的是哪种 Shell？运行 <code>echo $SHELL</code> 查看。</p>
         <div className="guide-shell-switch">
           <button className={`guide-platform-btn ${shell === 'bash' ? 'active' : ''}`} onClick={() => setShell('bash')}>bash</button>
@@ -226,15 +257,16 @@ function LinuxGuide() {
         <p>将 <code>sk-hub-xxx</code> 替换为你的 Terminal Token：</p>
         <EnvVarsBlock shell={shell} />
         <p className="guide-verify-label">验证：</p>
-        <CodeBlock code={`echo $ANTHROPIC_BASE_URL\necho $ANTHROPIC_API_KEY`} />
+        <CodeBlock code={`echo $ANTHROPIC_BASE_URL\necho $ANTHROPIC_AUTH_TOKEN`} />
         <div className="guide-env-desc">
           <div className="guide-env-row"><code>ANTHROPIC_BASE_URL</code><span>Hub 代理地址，所有请求通过此地址转发</span></div>
-          <div className="guide-env-row"><code>ANTHROPIC_API_KEY</code><span>你的 Terminal Token，用于身份验证</span></div>
+          <div className="guide-env-row"><code>ANTHROPIC_AUTH_TOKEN</code><span>你的 Terminal Token，用于身份验证</span></div>
           <div className="guide-env-row"><code>CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC</code><span>禁用遥测数据上报，避免连接超时</span></div>
+          <div className="guide-env-row"><code>CLAUDE_CODE_EFFORT_LEVEL</code><span>推荐启用 max 推理强度</span></div>
         </div>
       </Step>
 
-      <Step n={4} title="验证和使用">
+      <Step n={5} title="验证和使用">
         <Note>必须<strong>重新打开终端</strong>（或运行 <code>source ~/.bashrc</code>）才能使环境变量生效。</Note>
         <CodeBlock code={`claude --version\nclaude`} />
         <p>在项目目录中使用：</p>

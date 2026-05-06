@@ -25,7 +25,7 @@ Once logged in as admin:
 
 ```bash
 export ANTHROPIC_BASE_URL=http://127.0.0.1:3180
-export ANTHROPIC_API_KEY=sk-hub-...   # the key from step 2
+export ANTHROPIC_AUTH_TOKEN=sk-hub-...   # the key from step 2
 claude
 ```
 
@@ -192,6 +192,6 @@ logs/             # Usage logs per account (gitignored)
 
 ## TODO
 
-- [ ] Scheduled backup for `config/` (hourly tar.gz snapshots, 7-day retention). `terminals.json` is painful to restore since every user would need to update their `ANTHROPIC_API_KEY`.
+- [ ] Scheduled backup for `config/` (hourly tar.gz snapshots, 7-day retention). `terminals.json` is painful to restore since every user would need to update their `ANTHROPIC_AUTH_TOKEN`.
 - [ ] Custom SMTP in Supabase (e.g. [Resend](https://resend.com/)) to escape the free-tier 2-emails-per-hour limit before onboarding real users.
 - [x] Clean up legacy terminals with no `userId` — they show as "（无主）" for admins; decide whether to claim them or delete.
