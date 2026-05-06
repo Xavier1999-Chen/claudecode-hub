@@ -141,6 +141,9 @@ rebuild + 更新 Caddyfile + reload + 改 Supabase Site URL 即可生效。
 ### Actual
 - 17:52  #57 (PR #61) · 优化用户使用指南：env var `ANTHROPIC_API_KEY` → `ANTHROPIC_AUTH_TOKEN`、新增 `CLAUDE_CODE_EFFORT_LEVEL=max`、新增 Step 3「跳过首次登录引导」 · evidence: PR #61 merged, commits 49be07f + 7f13f42
 - 19:02  [ad-hoc] OAuth refresh_token 失效 root cause 排查 + issue #62 立案 · 静态代码审查 + ECS tmux scrollback 取证（数百行 `Refresh token not found or invalid`）+ web 调研（claude-code#24317 / token-weather#83 等证实 Anthropic OAuth 实施 RT rotation）+ 全局审视 admin 14 处 writeAccounts → 定位真因为 admin 进程内多个 async writer 间 read-modify-write 竞态（probeAllRelays 60s timer 与 report-credentials handler 互相覆盖凭证更新）· evidence: issue #62 created with full RCA + 修法（async-mutex 串行化）+ DoD + out-of-scope 单独跟踪项
+- 19:30  #62 实施完成 + PR #63 开 · 新增 `src/admin/accounts-mutex.js`（promise-chain mutex，对齐 RateQueue 风格）+ 14 处 writeAccounts 全部经 lockWrites/runExclusive 串行化 + 5 个新测试用例（含 race 基线复现 + 修复验证）· evidence: PR #63, branch fix/accounts-mutex-#62, commit 3f5e91d, npm test 215/215 绿
+- 19:48  #40 实施完成 + PR #64 开 · 与 issue 原 design 偏离：仅做出站 strip，不做入站 inject（web 调研证实 Anthropic signature 是密码学加密、假签必拒）· 新增 `src/proxy/thinking-sanitizer.js` 按 signature 长度 < 50 启发式判定 foreign block 删除 + forwarder 集成 + 11 个测试用例 · evidence: PR #64, branch fix/thinking-signature-#40, commit f5d3021, npm test 226/226 绿（issue scope 重新校准对齐 screenshot 实际错误"Invalid signature in thinking block"，非 issue body 原描述的"empty or malformed response"）
+- 19:51  staging 分支 `staging/oauth-and-signature` 建好（#62 + #40 双 no-ff merge，221 tests 绿）· 不开 PR，只用于 ECS 部署验证；通过后两个 PR 独立 merge · evidence: staging branch pushed to origin, merge commits ab3226d + 2d3c9c8
 
 ### Blockers
 - 无
