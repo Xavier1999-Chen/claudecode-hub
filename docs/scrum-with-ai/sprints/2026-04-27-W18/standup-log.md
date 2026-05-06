@@ -115,6 +115,7 @@ rebuild + 更新 Caddyfile + reload + 改 Supabase Site URL 即可生效。
 
 ## 2026-05-06 (Wed) · Sprint Day 10/14
 > 写入时间：2026-05-06T10:12:37+08:00 · sprint=2026-04-27-W18
+> EOD: 2026-05-06T21:25:26+08:00
 
 ### Yesterday
 - 计划（来自 04-30 entry Today + Tomorrow's seed）:
@@ -144,6 +145,10 @@ rebuild + 更新 Caddyfile + reload + 改 Supabase Site URL 即可生效。
 - 19:30  #62 实施完成 + PR #63 开 · 新增 `src/admin/accounts-mutex.js`（promise-chain mutex，对齐 RateQueue 风格）+ 14 处 writeAccounts 全部经 lockWrites/runExclusive 串行化 + 5 个新测试用例（含 race 基线复现 + 修复验证）· evidence: PR #63, branch fix/accounts-mutex-#62, commit 3f5e91d, npm test 215/215 绿
 - 19:48  #40 实施完成 + PR #64 开 · 与 issue 原 design 偏离：仅做出站 strip，不做入站 inject（web 调研证实 Anthropic signature 是密码学加密、假签必拒）· 新增 `src/proxy/thinking-sanitizer.js` 按 signature 长度 < 50 启发式判定 foreign block 删除 + forwarder 集成 + 11 个测试用例 · evidence: PR #64, branch fix/thinking-signature-#40, commit f5d3021, npm test 226/226 绿（issue scope 重新校准对齐 screenshot 实际错误"Invalid signature in thinking block"，非 issue body 原描述的"empty or malformed response"）
 - 19:51  staging 分支 `staging/oauth-and-signature` 建好（#62 + #40 双 no-ff merge，221 tests 绿）· 不开 PR，只用于 ECS 部署验证；通过后两个 PR 独立 merge · evidence: staging branch pushed to origin, merge commits ab3226d + 2d3c9c8
+- 21:10  [#40] 多轮迭代定位真因 · length<50 启发式被 4340 字符假 sig 突破 → 改 sentinel 方案（SSE 入站打 `__hub_foreign_signature__` + 出站 sanitizer 检测 sentinel + length fallback）→ ECS 实测仍 400 → raw-SSE tee 诊断暴露 agg 上游（kimi-for-coding）用 `data:{...}` 无空格 SSE 格式（Anthropic 规范是 `data: {...}` 带空格），rewriter `startsWith('data: ')` 匹配 0 行全部漏检 → 改 `startsWith('data:') + slice(5).trimStart()` 后 prod 不再 400 · evidence: commit 3f60b3e + ECS 实测 [sse-rewriter] / [fwd] sanitized log 路径全通
+- 21:20  [#40] cleanup pass · 删 prod 不需要的 diagnostic（raw-SSE tee / per-line sig dump / per-form rewrite log）+ 精简 jsdoc，保留 1 条运维 log `[fwd] sanitized N foreign thinking block(s)` · evidence: commit fe3ba39, -98 行净减
+- 21:25  feedback memory 写入：scrum ceremony commits 必须立即 push · 早上 morning standup 只 commit (`927bc8f`) 没 push 引发本地 main / origin 分叉，rebase 时间倒挂 vs merge noise 两难，根因是 commit 后没 push · evidence: ~/.claude/.../memory/feedback_scrum_ceremony_push.md
+- 21:25  Day 10 EOD lock · #62 PR #63 + #40 PR #64 双 partial（实施 + ECS 部署 staging/oauth-and-signature + cleanup 全部完成；等 24h soak 验证：OAuth refresh 不再出 `Refresh token not found` + thinking sig 不再 400 → 通过后明天 merge 两个 PR 进 main）· evidence: staging head = 0f39574
 
 ### Blockers
 - 无
@@ -157,4 +162,9 @@ rebuild + 更新 Caddyfile + reload + 改 Supabase Site URL 即可生效。
 ### Sprint Goal Progress
 - 状态: at-risk
 - 理由（用户原话）: 充值模块 0 进度，剩 4 天起步偏紧
+
+### Tomorrow's seed
+- 主线: ECS 观察通过 → merge #63 + #64 → 推进 #56 充值模块 PRD
+- 看心情: admin-restyle PRD 起个头 / #58 风格尾巴
+- 仍 blocked: 无
 
