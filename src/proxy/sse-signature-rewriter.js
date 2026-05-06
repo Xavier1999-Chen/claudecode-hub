@@ -40,8 +40,11 @@ export function createForeignSignatureRewriter() {
 
   function rewriteEvent(eventText) {
     return eventText.split('\n').map(line => {
-      if (!line.startsWith('data: ')) return line;
-      const jsonStr = line.slice(6);
+      if (!line.startsWith('data:')) return line;
+      // Some upstreams (e.g. Kimi-based aggregated providers) emit
+      // `data:{...}` with no space; Anthropic spec uses `data: {...}`
+      // with a space. Accept both.
+      const jsonStr = line.slice(5).trimStart();
       if (!jsonStr.includes('signature')) return line;
       // Diagnostic dump: first 3 sig-bearing lines per request, truncated.
       if (dumped < 3) {
