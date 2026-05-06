@@ -1,4 +1,5 @@
 import fetch from 'node-fetch';
+import { Transform } from 'node:stream';
 import { HttpsProxyAgent } from 'https-proxy-agent';
 import { createUsageTapper } from './usage-tracker.js';
 import { isOAuthRevoked } from './permission-guard.js';
@@ -298,7 +299,22 @@ export async function forwardRequest(req, res, account, terminalId, pool, triedI
     // identified and stripped before being sent to a real Anthropic OAuth
     // account (handled in thinking-sanitizer.js).
     if (isRelay || isAggregated) {
-      upRes.body.pipe(createForeignSignatureRewriter()).pipe(tapper).pipe(res);
+      // Diagnostic: tee first 2 KB of raw upstream SSE per request so we can
+      // see exact event format from the agg/relay provider.
+      let teeBytes = 0;
+      const teeDumper = new Transform({
+        transform(chunk, _enc, cb) {
+          if (teeBytes < 2000) {
+            const remaining = 2000 - teeBytes;
+            const slice = chunk.slice(0, remaining);
+            console.log(`[fwd-tee ${account.id}] +${chunk.length}b raw:`,
+              JSON.stringify(slice.toString('utf8')));
+            teeBytes += chunk.length;
+          }
+          cb(null, chunk);
+        },
+      });
+      upRes.body.pipe(teeDumper).pipe(createForeignSignatureRewriter()).pipe(tapper).pipe(res);
     } else {
       upRes.body.pipe(tapper).pipe(res);
     }
