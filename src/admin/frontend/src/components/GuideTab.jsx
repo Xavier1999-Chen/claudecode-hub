@@ -82,12 +82,16 @@ function WindowsGuide() {
       </Step>
 
       <Step n={3} title="跳过首次登录引导">
-        <p>首次运行 <code>claude</code> 会触发与 Hub 不兼容的官方登录引导。先在配置文件里写入跳过标记。</p>
-        <p>用记事本或 VS Code 打开 <code>%USERPROFILE%\.claude.json</code>（资源管理器地址栏直接粘贴此路径回车即可定位；文件不存在就新建）。写入：</p>
+        <p>首次运行 <code>claude</code> 会触发与 Hub 不兼容的官方登录引导。在配置文件里预先写入跳过标记可绕过。</p>
+        <p>刚装完 Claude Code 时这个文件还不存在，需要新建。Windows 默认路径：</p>
+        <CodeBlock code={`C:\\Users\\<你的用户名>\\.claude.json`} />
+        <p>不确定 <code>{'<你的用户名>'}</code> 是什么？在 PowerShell 中运行：</p>
+        <CodeBlock code="echo $env:USERPROFILE" />
+        <p>输出（如 <code>C:\Users\xychen</code>）就是你的主目录，在这里新建 <code>.claude.json</code> 文件，写入：</p>
         <CodeBlock code={`{
   "hasCompletedOnboarding": true
 }`} />
-        <Note>文件已有内容时，把 <code>"hasCompletedOnboarding": true</code> 加到现有 JSON 对象中即可，不要整体覆盖。</Note>
+        <Note>如果你已经跑过一次 <code>claude</code>，文件可能已经存在 —— 这种情况把 <code>"hasCompletedOnboarding": true</code> 加到现有 JSON 对象中即可，不要整体覆盖。</Note>
       </Step>
 
       <Step n={4} title="配置环境变量">
@@ -99,7 +103,7 @@ function WindowsGuide() {
         <div className="guide-env-desc">
           <div className="guide-env-row"><code>ANTHROPIC_BASE_URL</code><span>Hub 代理地址，所有请求通过此地址转发</span></div>
           <div className="guide-env-row"><code>ANTHROPIC_AUTH_TOKEN</code><span>你的 Terminal Token，用于身份验证</span></div>
-          <div className="guide-env-row"><code>CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC</code><span>禁用遥测数据上报，避免连接超时</span></div>
+          <div className="guide-env-row"><code>CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC</code><span>禁用 claude code 上报遥测数据</span></div>
           <div className="guide-env-row"><code>CLAUDE_CODE_EFFORT_LEVEL</code><span>推荐启用 max 推理强度</span></div>
         </div>
       </Step>
@@ -154,12 +158,14 @@ function MacosGuide() {
       </Step>
 
       <Step n={3} title="跳过首次登录引导">
-        <p>首次运行 <code>claude</code> 会触发与 Hub 不兼容的官方登录引导。先在配置文件里写入跳过标记。</p>
-        <p>用编辑器打开 <code>~/.claude.json</code>（文件不存在就新建）。写入：</p>
+        <p>首次运行 <code>claude</code> 会触发与 Hub 不兼容的官方登录引导。在配置文件里预先写入跳过标记可绕过。</p>
+        <p>刚装完 Claude Code 时 <code>~/.claude.json</code> 还不存在，需要新建。不确定主目录路径？在终端中运行：</p>
+        <CodeBlock code="echo $HOME" />
+        <p>输出就是你的主目录，在这里新建 <code>.claude.json</code> 文件，写入：</p>
         <CodeBlock code={`{
   "hasCompletedOnboarding": true
 }`} />
-        <Note>文件已有内容时，把 <code>"hasCompletedOnboarding": true</code> 加到现有 JSON 对象中即可，不要整体覆盖。</Note>
+        <Note>如果你已经跑过一次 <code>claude</code>，文件可能已经存在 —— 这种情况把 <code>"hasCompletedOnboarding": true</code> 加到现有 JSON 对象中即可，不要整体覆盖。</Note>
       </Step>
 
       <Step n={4} title="配置环境变量">
@@ -175,7 +181,7 @@ function MacosGuide() {
         <div className="guide-env-desc">
           <div className="guide-env-row"><code>ANTHROPIC_BASE_URL</code><span>Hub 代理地址，所有请求通过此地址转发</span></div>
           <div className="guide-env-row"><code>ANTHROPIC_AUTH_TOKEN</code><span>你的 Terminal Token，用于身份验证</span></div>
-          <div className="guide-env-row"><code>CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC</code><span>禁用遥测数据上报，避免连接超时</span></div>
+          <div className="guide-env-row"><code>CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC</code><span>禁用 claude code 上报遥测数据</span></div>
           <div className="guide-env-row"><code>CLAUDE_CODE_EFFORT_LEVEL</code><span>推荐启用 max 推理强度</span></div>
         </div>
       </Step>
@@ -240,12 +246,14 @@ function LinuxGuide() {
       </Step>
 
       <Step n={3} title="跳过首次登录引导">
-        <p>首次运行 <code>claude</code> 会触发与 Hub 不兼容的官方登录引导。先在配置文件里写入跳过标记。</p>
-        <p>用编辑器打开 <code>~/.claude.json</code>（文件不存在就新建）。写入：</p>
+        <p>首次运行 <code>claude</code> 会触发与 Hub 不兼容的官方登录引导。在配置文件里预先写入跳过标记可绕过。</p>
+        <p>刚装完 Claude Code 时 <code>~/.claude.json</code> 还不存在，需要新建。不确定主目录路径？在终端中运行：</p>
+        <CodeBlock code="echo $HOME" />
+        <p>输出就是你的主目录，在这里新建 <code>.claude.json</code> 文件，写入：</p>
         <CodeBlock code={`{
   "hasCompletedOnboarding": true
 }`} />
-        <Note>文件已有内容时，把 <code>"hasCompletedOnboarding": true</code> 加到现有 JSON 对象中即可，不要整体覆盖。</Note>
+        <Note>如果你已经跑过一次 <code>claude</code>，文件可能已经存在 —— 这种情况把 <code>"hasCompletedOnboarding": true</code> 加到现有 JSON 对象中即可，不要整体覆盖。</Note>
       </Step>
 
       <Step n={4} title="配置环境变量">
@@ -261,7 +269,7 @@ function LinuxGuide() {
         <div className="guide-env-desc">
           <div className="guide-env-row"><code>ANTHROPIC_BASE_URL</code><span>Hub 代理地址，所有请求通过此地址转发</span></div>
           <div className="guide-env-row"><code>ANTHROPIC_AUTH_TOKEN</code><span>你的 Terminal Token，用于身份验证</span></div>
-          <div className="guide-env-row"><code>CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC</code><span>禁用遥测数据上报，避免连接超时</span></div>
+          <div className="guide-env-row"><code>CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC</code><span>禁用 claude code 上报遥测数据</span></div>
           <div className="guide-env-row"><code>CLAUDE_CODE_EFFORT_LEVEL</code><span>推荐启用 max 推理强度</span></div>
         </div>
       </Step>
