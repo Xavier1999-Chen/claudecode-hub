@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { sanitizeForeignThinkingBlocks } from '../src/proxy/thinking-sanitizer.js';
+import { FOREIGN_SIGNATURE_SENTINEL } from '../src/proxy/sse-signature-rewriter.js';
 
 // Real Anthropic signatures are long base64 strings (usually 200+ chars);
 // the constant chosen here just needs to clear the 50-char foreign threshold.
@@ -74,7 +75,29 @@ test('strips block with empty-string signature', () => {
   assert.equal(body.messages[0].content.length, 1);
 });
 
-test('strips block with short fake signature (< 50 chars)', () => {
+test('strips block with sentinel signature (rewriter-marked, primary detection)', () => {
+  // Real-world case: agg/relay provider returned a 4 KB fake signature, the
+  // SSE rewriter replaced it with the sentinel before storing in claude code's
+  // session JSONL. On replay this block must be stripped no matter how long
+  // its original sig was.
+  const body = {
+    messages: [
+      {
+        role: 'assistant',
+        content: [
+          { type: 'thinking', thinking: '...', signature: FOREIGN_SIGNATURE_SENTINEL },
+          { type: 'text', text: 'reply' },
+        ],
+      },
+    ],
+  };
+  const removed = sanitizeForeignThinkingBlocks(body);
+  assert.equal(removed, 1);
+  assert.equal(body.messages[0].content.length, 1);
+  assert.equal(body.messages[0].content[0].type, 'text');
+});
+
+test('strips block with short fake signature (< 50 chars, fallback heuristic)', () => {
   const body = {
     messages: [
       {
