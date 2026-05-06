@@ -13,6 +13,18 @@ async function runThrough(rewriter, chunks) {
   });
 }
 
+test('rewrites no-space `data:{...}` SSE format (Kimi-style upstream)', async () => {
+  // Aggregated providers (observed: kimi-for-coding via qingyuntop) emit
+  // SSE without a space between `data:` and the JSON. Anthropic spec uses
+  // `data: {...}` with a space. Both must work.
+  const rewriter = createForeignSignatureRewriter();
+  const sse = 'event:content_block_delta\n'
+    + 'data:{"type":"content_block_delta","index":0,"delta":{"type":"signature_delta","signature":"kimi_style_no_space_sig"}}\n\n';
+  const out = await runThrough(rewriter, [sse]);
+  assert.match(out, new RegExp(`"signature":"${FOREIGN_SIGNATURE_SENTINEL}"`));
+  assert.doesNotMatch(out, /kimi_style_no_space_sig/);
+});
+
 test('rewrites signature embedded in content_block_start.thinking', async () => {
   const rewriter = createForeignSignatureRewriter();
   const sse = 'event: content_block_start\n'
