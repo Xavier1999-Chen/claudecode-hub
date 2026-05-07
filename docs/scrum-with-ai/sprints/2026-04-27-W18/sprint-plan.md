@@ -16,6 +16,7 @@ definition_of_done: "PR merged to main + 用户在 sprint review 接受；充值
 extensions: []
 corrections:
   - { at: "2026-05-06T19:02+08:00", action: "add", ref: "issue#62", reason: "P0 生产事故：OAuth refresh_token rotation 后被 admin 内并发 race 覆盖导致永久失效；root cause 排查后拉进 sprint scope，修法明确不大重构" }
+  - { at: "2026-05-07T13:34+08:00", action: "add", ref: "issue#65", reason: "P0 生产事故续：#62 部署后 OAuth 仍 401/429；调研发现 admin race 只是症状一半，proxy mergeFromDisk 全量覆盖 in-memory credentials 是另一半 race（commit 8ce6dfb #46 引入），refresh_token rotation 把账号锁死。同症独立 bug，单独 issue + PR 走完，与 #63/#64 一起 ECS soak。" }
 ---
 
 # Sprint 2026-04-27-W18
