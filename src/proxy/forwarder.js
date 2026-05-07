@@ -4,6 +4,8 @@ import { createUsageTapper } from './usage-tracker.js';
 import { isOAuthRevoked } from './permission-guard.js';
 import { applyModelMap } from './model-map.js';
 import { resolveAggregatedProvider, rewriteModel } from './aggregated-router.js';
+import { sanitizeForeignThinkingBlocks } from './thinking-sanitizer.js';
+import { createForeignSignatureRewriter } from './sse-signature-rewriter.js';
 
 const UPSTREAM = 'https://api.anthropic.com';
 const UPSTREAM_TIMEOUT_MS = 60_000;
@@ -95,14 +97,18 @@ export async function forwardRequest(req, res, account, terminalId, pool, triedI
 
   let outBody = req.method !== 'GET' && req.method !== 'HEAD' ? req.rawBody : undefined;
 
-  // NOTE: We no longer strip thinking blocks. Anthropic-compatible
-  // upstreams (including DeepSeek/Kimi /anthropic endpoints) require
-  // thinking blocks to be replayed on subsequent turns. Stripping them
-  // causes a 400 "thinking must be passed back" error.
-  // The original stripping was meant to avoid signature mismatches when
-  // the OAuth pool rotates accounts between turns; that is now handled
-  // as a known limitation (sticky account selection for thinking convs).
-  // if (outBody) outBody = stripThinkingBlocks(outBody);
+  // Issue #40: when routing to OAuth, strip thinking blocks whose
+  // signatures came from a relay/aggregated upstream — Anthropic
+  // decrypts signatures cryptographically and 400s on anything it
+  // didn't produce. Detection lives in thinking-sanitizer.js
+  // (sentinel match, set by sse-signature-rewriter.js on inbound).
+  if (!isRelay && !isAggregated && outBody && body && Array.isArray(body.messages)) {
+    const stripped = sanitizeForeignThinkingBlocks(body);
+    if (stripped > 0) {
+      outBody = Buffer.from(JSON.stringify(body));
+      console.log(`[fwd] sanitized ${stripped} foreign thinking block(s) for ${account.email ?? account.id}`);
+    }
+  }
 
   if (isRelay || isAggregated) {
     // Relay / Aggregated station: static API key, no OAuth beta, no 1M-context stripping.
@@ -258,7 +264,14 @@ export async function forwardRequest(req, res, account, terminalId, pool, triedI
     : requestedTier;
   if (ct.includes('text/event-stream')) {
     const tapper = createUsageTapper({ accountId: account.id, terminalId, model, tier: resolvedTier });
-    upRes.body.pipe(tapper).pipe(res);
+    // Issue #40: tag relay / aggregated thinking signatures with a sentinel
+    // as they stream through; thinking-sanitizer strips them on later replay
+    // to a real Anthropic OAuth account. See sse-signature-rewriter.js.
+    if (isRelay || isAggregated) {
+      upRes.body.pipe(createForeignSignatureRewriter()).pipe(tapper).pipe(res);
+    } else {
+      upRes.body.pipe(tapper).pipe(res);
+    }
     res.on('close', () => { if (!tapper.destroyed) tapper.destroy(); });
     upRes.body.on('error', () => res.end());
   } else {
