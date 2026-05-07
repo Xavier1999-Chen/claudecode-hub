@@ -171,6 +171,7 @@ rebuild + 更新 Caddyfile + reload + 改 Supabase Site URL 即可生效。
 
 ## 2026-05-07 (Thu) · Sprint Day 11/14
 > 写入时间：2026-05-07T13:34:08+08:00 · sprint=2026-04-27-W18
+> EOD: 2026-05-07T19:23:12+08:00
 
 ### Yesterday
 - 计划（来自 05-06 entry Today + Tomorrow's seed）:
@@ -194,6 +195,15 @@ rebuild + 更新 Caddyfile + reload + 改 Supabase Site URL 即可生效。
 - ⏸ 推迟：#56 PRD 起步 / admin-restyle / #58 风格尾巴 / #63 + #64 + #65 三 PR merge 决策（待 #65 ECS soak 通过后明天一起处理）
 - 与 sprint goal 关系: 间接 on-goal（订阅账号生产可用性是充值流程端到端验证的前置）
 
+### Actual
+- 12:04  #65 立案 · 接 #62 调查发现 admin race 只是 OAuth refresh 失败症状的一半；proxy `mergeFromDisk` 用 `Object.assign(mem, freshAcc)` 全量覆盖 in-memory credentials 是另一半 race（commit `8ce6dfb` #46 引入），refresh_token rotation 把账号锁死 · evidence: issue #65 with full RCA + fix sketch + 4 acceptance tests
+- 13:36  daily standup 2026-05-07 entry 落盘 + push · 对账昨日 Actual + Today plan 锁 #65 / Goal at-risk · evidence: commit `9154fda`
+- 17:39  sprint-plan corrections add #65 · scope add (与昨天 #62 同模式) · evidence: commit `ce1f1cb`
+- 18:19  #65 实施 + PR #66 开 · 4 测试用例（race regression / admin refresh / idempotent / relay 行为兼容）+ `mergeFromDisk` 闭包提 public method + expiresAt 比较 preserve memory.credentials · evidence: PR #66, branch `fix/proxy-merge-rollback-#65`, commit `60cfbe1`, npm test 209/209 绿
+- 18:25  staging/oauth-and-signature merge #66 · 三 PR 合并版（#62 + #40 + #65）push 到 origin · evidence: staging head `e2469cc`, npm test 239/239 绿
+- 19:08  ECS 部署 + proxy/admin 重启 · staging head `e2469cc` 上线生产，标记 PR #66 manual verification 24h soak 起点 · evidence: ECS git checkout staging/oauth-and-signature + 重启确认
+- 19:23  #65 整体状态 partial · 实施 + 部署完成（PR #66 open + staging 三 PR 合并版上 ECS），24h soak 验证未走完（待明早对账：`Refresh token not found` / `invalid_grant` 是否消失 + 用户终端不再 401/429 retry + 聚合账号 sanitized log 正常）→ soak 通过则三 PR 一起 merge 进 main · evidence: PR #66 manual verification checkbox 第二项
+
 ### Blockers
 - #65 fix 需要在 ECS 真实流量下验证（本地无法稳定复现 race，依赖生产时间窗触发；意味着即使今天 PR ready，merge 仍要等 24h soak）
 
@@ -207,3 +217,8 @@ rebuild + 更新 Caddyfile + reload + 改 Supabase Site URL 即可生效。
 ### Sprint Goal Progress
 - 状态: at-risk
 - 理由（用户原话）: bug 太多了，这个 sprint 应该做不完付费模块了
+
+### Tomorrow's seed
+- 主线: 验收 PR #63 / #64 / #66（ECS 24h soak 通过 → 三 PR merge 进 main）
+- 看心情: 来得及就处理 admin-restyle + #58 风格尾巴
+- 仍 blocked: 无
