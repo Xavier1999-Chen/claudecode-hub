@@ -512,3 +512,139 @@ test('selectFallback skips cooling aggregated account', () => {
   const fb = pool.selectFallback(new Set());
   assert.equal(fb.id, 'acc_agg_warm');
 });
+
+// ── mergeFromDisk credential preservation (issue #65) ──────────────────────
+
+test('mergeFromDisk preserves in-memory OAuth credentials when memory.expiresAt > disk.expiresAt (race regression #65)', async () => {
+  // Simulate the race: proxy ensureFreshToken just refreshed → memory has NEW
+  // credentials (rotated refresh_token), but admin has not yet written to disk.
+  // mergeFromDisk reading stale disk MUST NOT roll back memory; otherwise the
+  // old refresh_token is invalidated by Anthropic and the account dies forever.
+  const memCreds = {
+    accessToken: 'new_at',
+    refreshToken: 'new_rt',
+    expiresAt: Date.now() + 3_600_000,
+    scopes: ['user:inference'],
+  };
+  const diskCreds = {
+    accessToken: 'old_at',
+    refreshToken: 'old_rt',
+    expiresAt: Date.now() - 1_000,
+    scopes: ['user:inference'],
+  };
+  const memAcc = { ...makeAccount('acc_1'), credentials: memCreds };
+  const diskAcc = { ...makeAccount('acc_1'), credentials: diskCreds };
+
+  const pool = new AccountPool({
+    accounts: [memAcc],
+    terminals: [],
+    configStore: {
+      readAccounts: async () => [diskAcc],
+      writeAccounts: async () => {},
+    },
+  });
+
+  await pool.mergeFromDisk();
+
+  const result = pool.getAccount('acc_1');
+  assert.equal(result.credentials.accessToken, 'new_at', 'in-memory accessToken must not be rolled back to disk');
+  assert.equal(result.credentials.refreshToken, 'new_rt', 'in-memory refreshToken (rotated) must not be replaced with consumed disk value');
+  assert.equal(result.credentials.expiresAt, memCreds.expiresAt);
+});
+
+test('mergeFromDisk applies disk credentials when disk.expiresAt > memory.expiresAt (admin manual refresh)', async () => {
+  // Reverse race: admin refresh-token endpoint completed and wrote new creds
+  // to disk. Proxy memory still holds older creds. mergeFromDisk should adopt
+  // disk's newer credentials.
+  const memCreds = {
+    accessToken: 'old_at',
+    refreshToken: 'old_rt',
+    expiresAt: Date.now() - 1_000,
+    scopes: [],
+  };
+  const diskCreds = {
+    accessToken: 'new_at',
+    refreshToken: 'new_rt',
+    expiresAt: Date.now() + 3_600_000,
+    scopes: [],
+  };
+  const memAcc = { ...makeAccount('acc_1'), credentials: memCreds };
+  const diskAcc = { ...makeAccount('acc_1'), credentials: diskCreds };
+
+  const pool = new AccountPool({
+    accounts: [memAcc],
+    terminals: [],
+    configStore: {
+      readAccounts: async () => [diskAcc],
+      writeAccounts: async () => {},
+    },
+  });
+
+  await pool.mergeFromDisk();
+
+  const result = pool.getAccount('acc_1');
+  assert.equal(result.credentials.accessToken, 'new_at', 'disk credentials should be applied when disk is newer');
+  assert.equal(result.credentials.refreshToken, 'new_rt');
+  assert.equal(result.credentials.expiresAt, diskCreds.expiresAt);
+});
+
+test('mergeFromDisk is idempotent when memory and disk have equal expiresAt', async () => {
+  // Steady state: proxy reported, admin wrote, polling reads disk = memory.
+  // Multiple mergeFromDisk calls should not crash, loop, or mutate creds.
+  const sharedExp = Date.now() + 3_600_000;
+  const sharedCreds = { accessToken: 'a', refreshToken: 'b', expiresAt: sharedExp, scopes: [] };
+  const memAcc = { ...makeAccount('acc_1'), credentials: { ...sharedCreds } };
+  const diskAcc = { ...makeAccount('acc_1'), credentials: { ...sharedCreds } };
+
+  const pool = new AccountPool({
+    accounts: [memAcc],
+    terminals: [],
+    configStore: {
+      readAccounts: async () => [diskAcc],
+      writeAccounts: async () => {},
+    },
+  });
+
+  await pool.mergeFromDisk();
+  await pool.mergeFromDisk();
+  await pool.mergeFromDisk();
+
+  const result = pool.getAccount('acc_1');
+  assert.equal(result.credentials.accessToken, 'a');
+  assert.equal(result.credentials.expiresAt, sharedExp);
+});
+
+test('mergeFromDisk syncs relay credentials from disk (no expiresAt → admin authoritative)', async () => {
+  // Relay/aggregated accounts have static apiKey, no expiresAt. Admin is the
+  // sole writer of these credentials, so disk must always win — preserves
+  // existing behavior of #46 for non-OAuth account types.
+  const memRelay = {
+    id: 'relay_1',
+    email: 'relay@test',
+    plan: 'pro',
+    type: 'relay',
+    credentials: { apiKey: 'old_key', baseUrl: 'https://old.example' },
+    status: 'idle',
+    cooldownUntil: null,
+    addedAt: Date.now(),
+  };
+  const diskRelay = {
+    ...memRelay,
+    credentials: { apiKey: 'new_key', baseUrl: 'https://new.example' },
+  };
+
+  const pool = new AccountPool({
+    accounts: [memRelay],
+    terminals: [],
+    configStore: {
+      readAccounts: async () => [diskRelay],
+      writeAccounts: async () => {},
+    },
+  });
+
+  await pool.mergeFromDisk();
+
+  const result = pool.getAccount('relay_1');
+  assert.equal(result.credentials.apiKey, 'new_key', 'relay apiKey should sync from disk (admin is sole writer)');
+  assert.equal(result.credentials.baseUrl, 'https://new.example');
+});
