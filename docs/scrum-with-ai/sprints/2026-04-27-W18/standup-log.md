@@ -168,3 +168,42 @@ rebuild + 更新 Caddyfile + reload + 改 Supabase Site URL 即可生效。
 - 看心情: admin-restyle PRD 起个头 / #58 风格尾巴
 - 仍 blocked: 无
 
+
+## 2026-05-07 (Thu) · Sprint Day 11/14
+> 写入时间：2026-05-07T13:34:08+08:00 · sprint=2026-04-27-W18
+
+### Yesterday
+- 计划（来自 05-06 entry Today + Tomorrow's seed）:
+  - #40 收（committed）
+  - #57 收（committed）
+  - [P0 ad-hoc] OAuth 自动刷新 root cause 排查
+  - Tomorrow's seed 主线: ECS 观察通过 → merge #63 + #64 → 推进 #56 充值模块 PRD
+- 实际:
+  - PR #61 merged · #57 优化用户使用指南
+  - issue #62 立案 + PR #63（open，未 merge）· admin accountsMutex 串行化 14 处 writeAccounts
+  - PR #64（open，未 merge）· #40 thinking signature sanitizer + sentinel rewriter
+  - staging/oauth-and-signature 分支部署 ECS 验证
+  - #40 多轮迭代定位 `data:` 无空格 SSE 格式 bug + cleanup -98 行
+- 差距:
+  - Tomorrow's seed 假设的"soak 通过 → merge 三个 PR"被今早调查推翻（OAuth 仍 401/429）
+  - #56 PRD 起步 0 进度，今天也排不上
+
+### Today
+- **#65** issue-first-dev 完整流程（拉分支 → 4 个测试 → fix → PR）
+  - 修法：`src/proxy/account-pool.js#startWatch().mergeFromDisk` 加 expiresAt 比较，memory 比 disk 新就 preserve memory.credentials
+- ⏸ 推迟：#56 PRD 起步 / admin-restyle / #58 风格尾巴 / #63 + #64 + #65 三 PR merge 决策（待 #65 ECS soak 通过后明天一起处理）
+- 与 sprint goal 关系: 间接 on-goal（订阅账号生产可用性是充值流程端到端验证的前置）
+
+### Blockers
+- #65 fix 需要在 ECS 真实流量下验证（本地无法稳定复现 race，依赖生产时间窗触发；意味着即使今天 PR ready，merge 仍要等 24h soak）
+
+### Realignment (L1)
+- trigger: 早上 6:30 用户报 ECS OAuth 仍 401/429 → 调研发现昨日 #62 mutex fix 只覆盖 admin race 的一半；proxy `mergeFromDisk` 用 `Object.assign(mem, freshAcc)` 全量覆盖 in-memory credentials 是另一半 race（commit `8ce6dfb` #46 引入），配合 Anthropic refresh_token rotation 把账号锁死
+- decision: 拉新 issue #65 + 单独 PR；#63 / #64 不单独 merge，等 #65 PR ready 后三个一起 ECS soak
+- 浮现的架构规则: "单一写入者原则"（#43）只覆盖 disk 写盘，但 in-memory 在 fire-and-forget 上报 admin 的窗口期内是真相源 —— mergeFromDisk 必须按 expiresAt 比较来决定是否回滚 memory.credentials
+- 同步到: 仅 L1（issue #65 body Root Cause 段 + PR + 4 个测试用例自带这条规则的载体，L2 决定跳过避免冗余）
+- 附带：花了 30+ min 排查"#65 issue 网页列表不显示"，定位到 GitHub 4/27-5/1 ES 大事故余波（GitHub 误删 17.9 亿 PR 文档，reindex 仍在 backlog 跑）；功能完整不影响 PR 流程
+
+### Sprint Goal Progress
+- 状态: at-risk
+- 理由（用户原话）: bug 太多了，这个 sprint 应该做不完付费模块了
