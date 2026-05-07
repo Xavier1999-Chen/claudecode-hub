@@ -320,59 +320,78 @@ export class AccountPool {
     return this.#rateQueues.get(accountId);
   }
 
-  #startWatch() {
-    // Merge helper: sync credentials and account list from disk without overwriting
-    // in-memory rate-limit state (which is fresher from actual API response headers).
-    const mergeFromDisk = async () => {
-      try {
-        const fresh = await this.#configStore.readAccounts();
-        for (const freshAcc of fresh) {
-          const mem = this.#accounts.find(a => a.id === freshAcc.id);
-          if (mem) {
-            // OAuth: in-memory rateLimit/cooldown 来自 Anthropic 响应头，比磁盘新；
-            //   admin 探测虽偶尔更新磁盘，但仍可能落后于实时响应头。
-            // Aggregated/Relay: rateLimit 是 admin 端虚拟计算/探测的产物，proxy
-            //   自己从来不更新它（不接收上游限额头）。此时磁盘永远是"权威源"，
-            //   保留内存反而会丢弃 admin 的最新计算（如 5h 边界过后的归零）。
-            const isRelayLike = mem.type === 'relay' || mem.type === 'aggregated';
-            const preservedRateLimit = isRelayLike ? null : mem.rateLimit;
-            const preservedCooldown = isRelayLike ? null : mem.cooldownUntil;
-            const preservedHealth = mem.health;
-            const preservedProviderHealths = mem.type === 'aggregated' && Array.isArray(mem.providers)
-              ? mem.providers.map(p => p.health)
-              : [];
+  /**
+   * Sync accounts from disk to in-memory pool. Called by fs.watch (when admin
+   * writes accounts.json) and by 15s polling fallback. Public so tests can
+   * exercise the merge logic directly without spinning up watchers/timers.
+   *
+   * Field ownership rules (whose state is fresher: memory vs disk):
+   * - rateLimit / cooldownUntil (OAuth): memory wins — populated from live
+   *   Anthropic response headers, admin's periodic probe lags behind.
+   * - rateLimit (relay/aggregated): disk wins — proxy never updates these
+   *   (no upstream limit headers); admin's virtual calc/probe is authoritative.
+   * - health / provider health: memory wins — set by proxy probes.
+   * - credentials (OAuth): whoever has the higher expiresAt wins. proxy's
+   *   ensureFreshToken mutates in-memory before fire-and-forget reporting to
+   *   admin, so memory is briefly newer than disk between refresh and admin's
+   *   write. Rolling memory back to disk during that window invalidates the
+   *   rotated refresh_token at Anthropic and locks the account out (issue #65).
+   * - credentials (relay/aggregated): disk wins — static apiKey, admin sole
+   *   writer; no expiresAt means the comparison naturally selects disk.
+   */
+  async mergeFromDisk() {
+    try {
+      const fresh = await this.#configStore.readAccounts();
+      for (const freshAcc of fresh) {
+        const mem = this.#accounts.find(a => a.id === freshAcc.id);
+        if (mem) {
+          const isRelayLike = mem.type === 'relay' || mem.type === 'aggregated';
+          const preservedRateLimit = isRelayLike ? null : mem.rateLimit;
+          const preservedCooldown = isRelayLike ? null : mem.cooldownUntil;
+          const preservedHealth = mem.health;
+          const preservedProviderHealths = mem.type === 'aggregated' && Array.isArray(mem.providers)
+            ? mem.providers.map(p => p.health)
+            : [];
 
-            // Full replace from disk
-            Object.assign(mem, freshAcc);
+          // Issue #65: only roll memory.credentials back to disk if disk's
+          // expiresAt is at least as fresh as memory's. Equal/missing on both
+          // sides (relay/aggregated) → disk wins, matching the prior behavior.
+          const memExpiry = mem.credentials?.expiresAt ?? 0;
+          const diskExpiry = freshAcc.credentials?.expiresAt ?? 0;
+          const preservedCredentials = memExpiry > diskExpiry ? mem.credentials : null;
 
-            // Restore preserved state — OAuth only
-            if (preservedRateLimit !== null) mem.rateLimit = preservedRateLimit;
-            if (preservedCooldown !== null) mem.cooldownUntil = preservedCooldown;
-            mem.health = preservedHealth;
-            if (Array.isArray(mem.providers) && preservedProviderHealths.length) {
-              for (let i = 0; i < Math.min(mem.providers.length, preservedProviderHealths.length); i++) {
-                mem.providers[i].health = preservedProviderHealths[i];
-              }
+          // Full replace from disk
+          Object.assign(mem, freshAcc);
+
+          // Restore preserved state
+          if (preservedCredentials) mem.credentials = preservedCredentials;
+          if (preservedRateLimit !== null) mem.rateLimit = preservedRateLimit;
+          if (preservedCooldown !== null) mem.cooldownUntil = preservedCooldown;
+          mem.health = preservedHealth;
+          if (Array.isArray(mem.providers) && preservedProviderHealths.length) {
+            for (let i = 0; i < Math.min(mem.providers.length, preservedProviderHealths.length); i++) {
+              mem.providers[i].health = preservedProviderHealths[i];
             }
           }
         }
-        // Add/remove accounts that were added/deleted via admin
-        const freshIds = new Set(fresh.map(a => a.id));
-        const memIds = new Set(this.#accounts.map(a => a.id));
-        for (const a of fresh) if (!memIds.has(a.id)) this.#accounts.push(a);
-        this.#accounts = this.#accounts.filter(a => freshIds.has(a.id));
-      } catch { /* ignore */ }
-    };
+      }
+      // Add/remove accounts that were added/deleted via admin
+      const freshIds = new Set(fresh.map(a => a.id));
+      const memIds = new Set(this.#accounts.map(a => a.id));
+      for (const a of fresh) if (!memIds.has(a.id)) this.#accounts.push(a);
+      this.#accounts = this.#accounts.filter(a => freshIds.has(a.id));
+    } catch { /* ignore */ }
+  }
 
+  #startWatch() {
+    const trigger = () => this.mergeFromDisk();
     try {
-      // fs.watch fires when admin writes accounts.json — merge credentials only,
-      // never do a full replace that would overwrite fresher in-memory rate-limit state.
-      this.#watcher = watch(this.#configStore.accountsPath, { persistent: false }, mergeFromDisk);
+      this.#watcher = watch(this.#configStore.accountsPath, { persistent: false }, trigger);
     } catch {
       // fs.watch not available in test environments
     }
     // Polling fallback for WSL2 where fs.watch is unreliable (inotify limitations).
-    setInterval(mergeFromDisk, 15000).unref();
+    setInterval(trigger, 15000).unref();
   }
 
   #startProactiveRefresh() {
