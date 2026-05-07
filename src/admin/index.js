@@ -13,6 +13,7 @@ import { isAccountCooling, reassignCoolingTerminals } from './reassignment.js';
 import { isOAuthRevoked } from '../proxy/permission-guard.js';
 import { syncRelayHealth, listRelayModels, RELAY_HEALTH_POLL_MS } from './relay-health.js';
 import { calcVirtualRateLimit } from './virtual-ratelimit.js';
+import { accountsMutex } from './accounts-mutex.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const LOGS_DIR = join(dirname(dirname(__dirname)), 'logs');
@@ -25,6 +26,16 @@ app.use(express.json());
 // In-memory relay health cache. Written by the backend poll timer and by
 // syncRateLimit(); read by sanitiseAccount() to merge health into API responses.
 const relayHealthCache = new Map(); // accountId → { status, latencyMs, model, error }
+
+// Wraps a route handler so its accounts.json read-modify-write block is
+// serialised against all other admin write paths via accountsMutex. See
+// issue #62: without this, the 60s probeAllRelays timer races with
+// /_internal/report-credentials and can overwrite a freshly rotated
+// OAuth refresh_token with a stale snapshot, permanently bricking the
+// account once the upstream rotation makes the old token invalid.
+function lockWrites(handler) {
+  return (req, res) => accountsMutex.runExclusive(() => handler(req, res));
+}
 
 // Serve React frontend static files (unauthenticated — SPA shell)
 app.use(express.static(DIST_DIR));
@@ -47,7 +58,7 @@ app.get('/api/accounts', async (_req, res) => {
   res.json(accounts.map(sanitiseAccount));
 });
 
-app.post('/api/accounts/:id/refresh-token', requireAdmin, async (req, res) => {
+app.post('/api/accounts/:id/refresh-token', requireAdmin, lockWrites(async (req, res) => {
   const accounts = await configStore.readAccounts();
   const acc = accounts.find(a => a.id === req.params.id);
   if (!acc) return res.status(404).json({ error: 'not_found' });
@@ -69,9 +80,9 @@ app.post('/api/accounts/:id/refresh-token', requireAdmin, async (req, res) => {
   } catch (err) {
     res.status(502).json({ error: err.message });
   }
-});
+}));
 
-app.post('/api/accounts/:id/sync-usage', requireAdmin, async (req, res) => {
+app.post('/api/accounts/:id/sync-usage', requireAdmin, lockWrites(async (req, res) => {
   const accounts = await configStore.readAccounts();
   const acc = accounts.find(a => a.id === req.params.id);
   if (!acc) return res.status(404).json({ error: 'not_found' });
@@ -89,9 +100,9 @@ app.post('/api/accounts/:id/sync-usage', requireAdmin, async (req, res) => {
   } catch (err) {
     res.status(502).json({ error: err.message });
   }
-});
+}));
 
-app.patch('/api/accounts/:id', requireAdmin, async (req, res) => {
+app.patch('/api/accounts/:id', requireAdmin, lockWrites(async (req, res) => {
   const accounts = await configStore.readAccounts();
   const acc = accounts.find(a => a.id === req.params.id);
   if (!acc) return res.status(404).json({ error: 'not_found' });
@@ -146,7 +157,7 @@ app.patch('/api/accounts/:id', requireAdmin, async (req, res) => {
     await reassignCoolingTerminals(acc.id, accounts, null, configStore);
   }
   res.json(sanitiseAccount(acc));
-});
+}));
 
 // List available claude models from a relay station's /v1/models endpoint.
 app.get('/api/accounts/:id/models', requireAdmin, async (req, res) => {
@@ -162,7 +173,7 @@ app.get('/api/accounts/:id/models', requireAdmin, async (req, res) => {
   }
 });
 
-app.post('/api/accounts/:id/force-online', requireAdmin, async (req, res) => {
+app.post('/api/accounts/:id/force-online', requireAdmin, lockWrites(async (req, res) => {
   const accounts = await configStore.readAccounts();
   const acc = accounts.find(a => a.id === req.params.id);
   if (!acc) return res.status(404).json({ error: 'not_found' });
@@ -170,9 +181,9 @@ app.post('/api/accounts/:id/force-online', requireAdmin, async (req, res) => {
   acc.cooldownUntil = null;
   await configStore.writeAccounts(accounts);
   res.json(sanitiseAccount(acc));
-});
+}));
 
-app.post('/api/accounts/:id/force-offline', requireAdmin, async (req, res) => {
+app.post('/api/accounts/:id/force-offline', requireAdmin, lockWrites(async (req, res) => {
   const accounts = await configStore.readAccounts();
   const acc = accounts.find(a => a.id === req.params.id);
   if (!acc) return res.status(404).json({ error: 'not_found' });
@@ -181,22 +192,22 @@ app.post('/api/accounts/:id/force-offline', requireAdmin, async (req, res) => {
   // Force-offline: reassign all terminals (auto + manual) away from the dead account
   await reassignTerminals(req.params.id, accounts.filter(a => a.id !== req.params.id), null);
   res.json(sanitiseAccount(acc));
-});
+}));
 
-app.delete('/api/accounts/:id', requireAdmin, async (req, res) => {
+app.delete('/api/accounts/:id', requireAdmin, lockWrites(async (req, res) => {
   let accounts = await configStore.readAccounts();
   const remaining = accounts.filter(a => a.id !== req.params.id);
   // Delete: reassign ALL terminals (both auto and manual)
   await reassignTerminals(req.params.id, remaining, null);
   await configStore.writeAccounts(remaining);
   res.json({ ok: true });
-});
+}));
 
 // Add a third-party relay-station account (static apiKey + baseUrl).
 // Relays serve Claude /v1/messages without OAuth; they're used as a fallback
 // tier when all OAuth accounts are cooling/exhausted. Optional per-tier
 // modelMap rewrites body.model before forwarding (e.g. opus-4-7 → opus-4-6).
-app.post('/api/accounts/relay', requireAdmin, async (req, res) => {
+app.post('/api/accounts/relay', requireAdmin, lockWrites(async (req, res) => {
   const { nickname, baseUrl, apiKey, modelMap } = req.body ?? {};
   if (typeof nickname !== 'string' || nickname.trim().length === 0) {
     return res.status(400).json({ error: 'nickname_required' });
@@ -228,11 +239,11 @@ app.post('/api/accounts/relay', requireAdmin, async (req, res) => {
   accounts.push(acc);
   await configStore.writeAccounts(accounts);
   res.status(201).json(sanitiseAccount(acc));
-});
+}));
 
 // Add an aggregated routing card — multiple upstream providers behind a single
 // token, with per-tier routing (Opus/Sonnet/Haiku/Image → provider + model).
-app.post('/api/accounts/aggregated', requireAdmin, async (req, res) => {
+app.post('/api/accounts/aggregated', requireAdmin, lockWrites(async (req, res) => {
   const { nickname, providers, routing, plan } = req.body ?? {};
   if (typeof nickname !== 'string' || nickname.trim().length === 0) {
     return res.status(400).json({ error: 'nickname_required' });
@@ -286,7 +297,7 @@ app.post('/api/accounts/aggregated', requireAdmin, async (req, res) => {
   accounts.push(acc);
   await configStore.writeAccounts(accounts);
   res.status(201).json(sanitiseAccount(acc));
-});
+}));
 
 // ── Terminals ────────────────────────────────────────────────────────────
 
@@ -425,7 +436,7 @@ app.post('/api/oauth/submit-code/:sessionId', requireAdmin, async (req, res) => 
 });
 
 // Step 3: poll until credentials file appears, then import
-app.post('/api/oauth/import/:sessionId', requireAdmin, async (req, res) => {
+app.post('/api/oauth/import/:sessionId', requireAdmin, lockWrites(async (req, res) => {
   const session = oauthSessions.get(req.params.sessionId);
   if (!session) return res.status(404).json({ error: 'session_not_found' });
 
@@ -441,7 +452,7 @@ app.post('/api/oauth/import/:sessionId', requireAdmin, async (req, res) => {
     // Keep session in map so the client can retry or diagnose
     res.status(400).json({ error: err.message });
   }
-});
+}));
 
 // Fallback: manual terminal flow
 app.post('/api/oauth/start-manual', requireAdmin, (_req, res) => {
@@ -450,7 +461,7 @@ app.post('/api/oauth/start-manual', requireAdmin, (_req, res) => {
   res.json({ sessionId, loginCmd });
 });
 
-app.post('/api/oauth/import-manual/:sessionId', requireAdmin, async (req, res) => {
+app.post('/api/oauth/import-manual/:sessionId', requireAdmin, lockWrites(async (req, res) => {
   const session = oauthSessions.get(req.params.sessionId);
   if (!session) return res.status(404).json({ error: 'session_not_found' });
   oauthSessions.delete(req.params.sessionId);
@@ -463,7 +474,7 @@ app.post('/api/oauth/import-manual/:sessionId', requireAdmin, async (req, res) =
   } catch (err) {
     res.status(400).json({ error: err.message });
   }
-});
+}));
 
 // ── Helpers ───────────────────────────────────────────────────────────────
 
@@ -676,7 +687,7 @@ async function reassignTerminals(removedAccountId, availableAccounts, modes) {
 // ─────────────────────────────────────────────────────────────────────────
 
 // Probe all accounts on demand (called by frontend adaptive polling)
-app.post('/api/sync-usage-all', requireAdmin, async (_req, res) => {
+app.post('/api/sync-usage-all', requireAdmin, lockWrites(async (_req, res) => {
   try {
     const accounts = await configStore.readAccounts();
     for (const acc of accounts) {
@@ -693,7 +704,7 @@ app.post('/api/sync-usage-all', requireAdmin, async (_req, res) => {
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
-});
+}));
 
 // ── Internal API (called by proxy, no auth) ──────────────────────────────
 
@@ -713,7 +724,7 @@ async function syncProxyTerminals() {
 
 // Called by proxy when it detects a 403 permission_error (OAuth revoked)
 // or the circuit breaker opens for an account (issue #42).
-app.post('/_internal/report-exhausted', async (req, res) => {
+app.post('/_internal/report-exhausted', lockWrites(async (req, res) => {
   try {
     const { accountId } = req.body;
     const accounts = await configStore.readAccounts();
@@ -729,7 +740,7 @@ app.post('/_internal/report-exhausted', async (req, res) => {
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
-});
+}));
 
 // Called by proxy on 429/529 fallback — terminal.accountId changed in memory.
 app.post('/_internal/report-fallback', async (req, res) => {
@@ -748,7 +759,7 @@ app.post('/_internal/report-fallback', async (req, res) => {
 });
 
 // Called by proxy after OAuth token refresh — admin patches credentials only.
-app.post('/_internal/report-credentials', async (req, res) => {
+app.post('/_internal/report-credentials', lockWrites(async (req, res) => {
   try {
     const { accountId, credentials } = req.body;
     const accounts = await configStore.readAccounts();
@@ -760,7 +771,7 @@ app.post('/_internal/report-credentials', async (req, res) => {
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
-});
+}));
 
 // ── Public routes ────────────────────────────────────────────────────────
 
@@ -782,37 +793,39 @@ setInterval(syncProxyTerminals, 30_000).unref();
 // all relay accounts that have a probe model configured and updates the
 // relayHealthCache. Frontend just reads the cache via getAccounts.
 async function probeAllRelays() {
-  try {
-    const accounts = await configStore.readAccounts();
-    let dirty = false;
-    for (const acc of accounts) {
-      if (acc.type !== 'relay' && acc.type !== 'aggregated') continue;
-      if (acc.status === 'exhausted') continue;
-      if (acc.type === 'aggregated') {
-        acc.rateLimit = await calcVirtualRateLimit(acc.id, acc.plan ?? 'max', LOGS_DIR);
-        await probeAndCacheRelay(acc); // 同时探测 provider 健康
-        dirty = true;
-      } else {
-        await probeAndCacheRelay(acc);
-        dirty = true;
+  await accountsMutex.runExclusive(async () => {
+    try {
+      const accounts = await configStore.readAccounts();
+      let dirty = false;
+      for (const acc of accounts) {
+        if (acc.type !== 'relay' && acc.type !== 'aggregated') continue;
+        if (acc.status === 'exhausted') continue;
+        if (acc.type === 'aggregated') {
+          acc.rateLimit = await calcVirtualRateLimit(acc.id, acc.plan ?? 'max', LOGS_DIR);
+          await probeAndCacheRelay(acc); // 同时探测 provider 健康
+          dirty = true;
+        } else {
+          await probeAndCacheRelay(acc);
+          dirty = true;
+        }
       }
-    }
-    if (dirty) {
-      await configStore.writeAccounts(accounts);
-    }
-    // 安全网：每轮无条件检查所有 cooling/exhausted 账号，把挂载在上面的
-    // 终端迁走（含 manual）。不能只在"刚进入 cooling"的瞬间触发，否则
-    //   - 重启后从磁盘读到的账号本就是 cooling，永远跳过
-    //   - 用户事后手动挂载到 cooling 账号上，永远跳过
-    // reassignCoolingTerminals 在没有匹配终端或没有温账号时是 no-op，多次调用安全。
-    for (const acc of accounts) {
-      if (acc.status === 'exhausted' || isAccountCooling(acc)) {
-        await reassignCoolingTerminals(acc.id, accounts, null, configStore);
+      if (dirty) {
+        await configStore.writeAccounts(accounts);
       }
+      // 安全网：每轮无条件检查所有 cooling/exhausted 账号，把挂载在上面的
+      // 终端迁走（含 manual）。不能只在"刚进入 cooling"的瞬间触发，否则
+      //   - 重启后从磁盘读到的账号本就是 cooling，永远跳过
+      //   - 用户事后手动挂载到 cooling 账号上，永远跳过
+      // reassignCoolingTerminals 在没有匹配终端或没有温账号时是 no-op，多次调用安全。
+      for (const acc of accounts) {
+        if (acc.status === 'exhausted' || isAccountCooling(acc)) {
+          await reassignCoolingTerminals(acc.id, accounts, null, configStore);
+        }
+      }
+    } catch (err) {
+      console.error('[relay-poll] error:', err.message);
     }
-  } catch (err) {
-    console.error('[relay-poll] error:', err.message);
-  }
+  });
 }
 probeAllRelays(); // Initial probe on startup — don't wait 60s
 setInterval(probeAllRelays, RELAY_HEALTH_POLL_MS);
